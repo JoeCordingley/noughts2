@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <script src="https://unpkg.com/htmx.org@1.9.12"
+    integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2"
+    crossorigin="anonymous"></script>
+</head>
+
+<body>
+  <h1>hello</h1>
+  <button hx-post="http://localhost:8080/api/message" hx-trigger="click" hx-target="#clicked" hx-swap="innerhtml">Click
+    Me</button>
+  <div id="clicked">Not Clicked</div>
+</body>
+
+</html>
