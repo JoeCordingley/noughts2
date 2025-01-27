@@ -36,7 +36,9 @@ library
   build-depends:
       base >=4.7 && <5
     , bytestring
+    , dani-servant-lucid2
     , http-media
+    , lucid2
     , servant
     , servant-server
     , text
@@ -56,7 +58,9 @@ executable tigris2-exe
   build-depends:
       base >=4.7 && <5
     , bytestring
+    , dani-servant-lucid2
     , http-media
+    , lucid2
     , servant
     , servant-server
     , text
@@ -78,7 +82,9 @@ test-suite tigris2-test
   build-depends:
       base >=4.7 && <5
     , bytestring
+    , dani-servant-lucid2
     , http-media
+    , lucid2
     , servant
     , servant-server
     , text

@@ -28,6 +28,8 @@ dependencies:
 - text
 - http-media
 - bytestring
+- lucid2
+- dani-servant-lucid2
 
 ghc-options:
 - -Wall

@@ -1,52 +1,35 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
-import Control.Monad.IO.Class (liftIO)
-import qualified Data.ByteString.Lazy as BL
-import Data.Text (Text)
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Encoding as TL
-import Network.HTTP.Media ((//), (/:))
+module Main where
+
+import Lucid.Base (Html, ToHtml (..), renderText)
+import Lucid.Html5 (body_, h1_, p_)
 import Network.Wai.Handler.Warp (run)
 import Servant
+import Servant.API.ContentTypes.Lucid
 
--- Define a custom HTML content type
-data HTML
+-- API Definition
+type API = Get '[HTML] (Html ())
 
-instance Accept HTML where
-    contentType _ = "text" // "html" /: ("charset", "utf-8")
-
-instance MimeRender HTML Text where
-    mimeRender _ = TL.encodeUtf8 . TL.fromStrict
-
--- Define a custom HTML content type
-data HTMLFile
-
-instance Accept HTMLFile where
-    contentType _ = "text" // "html" /: ("charset", "utf-8")
-
-instance MimeRender HTMLFile BL.ByteString where
-    mimeRender _ = id
-
--- Define the API type
-type API =
-    "api" :> "message" :> Post '[HTML] Text :<|> "home" :> Get '[HTMLFile] BL.ByteString
-
--- Implement the server
+-- Server Implementation
 server :: Server API
-server = do
-    htmlContent <- liftIO $ BL.readFile "static/index.html"
-    return "<p>Hello from the Servant API!</p>" :<|> return htmlContent
+server = pure examplePage
 
--- Proxy for the API
-api :: Proxy API
-api = Proxy
+-- Example HTML Page
+examplePage :: Html ()
+examplePage = do
+    body_ $ do
+        h1_ "Welcome to Lucid2 with Servant!"
+        p_ "This is a simple example of using Lucid2 to generate HTML content."
 
--- Main entry point
+-- Application
+app :: Application
+app = serve (Proxy :: Proxy API) server
+
+-- Main Function
 main :: IO ()
 main = do
-    putStrLn "Starting Servant server on http://localhost:8080"
-    run 8080 $ serve api server
+    putStrLn "Running on http://localhost:8080/"
+    run 8080 app
