@@ -24,12 +24,16 @@ dependencies:
 - servant
 - warp
 - wai
+- wai
 - servant-server
 - text
 - http-media
 - bytestring
 - lucid2
 - dani-servant-lucid2
+- websockets
+- servant-websockets
+- mtl
 
 ghc-options:
 - -Wall
