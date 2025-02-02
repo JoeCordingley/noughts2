@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@astrojs/node": "^9.0.2",
-    "astro": "^5.2.3"
+    "astro": "^5.2.3",
+    "astro-htmx": "^1.0.6",
+    "htmx.org": "^1.9.12"
   }
 }

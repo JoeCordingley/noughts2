@@ -3,13 +3,7 @@ services:
   nginx:
     image: nginx:latest
     volumes:
-      - ./nginx/nginx.common.conf:/etc/nginx/nginx.common.conf:ro
-      - ./nginx/nginx.local.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/nginx.local.conf:/etc/nginx/nginx.conf:ro  # Mount the config file
     ports:
-      - "80:80"
-    networks:
-      - local_network
-
-networks:
-  local_network:
-    driver: bridge
+      - "80:80"  # Expose Nginx on port 80 to the host
+    network_mode: "host"  # Use host network for Nginx
