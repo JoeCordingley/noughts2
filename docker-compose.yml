@@ -8,13 +8,11 @@ services:
       - "4321"  # Expose to the internal network, not to the host machine
 
   api:
-    image: haskell:latest
     build:
-      context: /api
+      context: ./api
     working_dir: /app
     expose:
       - "8080"  # Expose to the internal network, not to the host machine
-    command: stack exec --allow-different-user tigris-api-exe  # Replace with the actual command to start your Haskell API
 
   nginx:
     image: nginx:latest
