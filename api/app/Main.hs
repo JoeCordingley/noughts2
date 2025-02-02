@@ -10,11 +10,13 @@ import Control.Monad (forever, (<=<))
 import Control.Monad.Error.Class (MonadError, liftEither)
 import Control.Monad.Except (ExceptT, runExceptT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Data.Text (Text)
+
+-- import Data.Text (Text)
 import qualified Data.Text.IO as Text (putStrLn)
-import Lucid (Attributes, term)
+
+-- import Lucid (Attributes, term)
 import Lucid.Base (Html)
-import Lucid.Html5 (body_, button_, div_, form_, h1_, head_, id_, input_, name_, p_, script_, src_, title_)
+import Lucid.Html5
 import Network.Wai.Handler.Warp (run)
 import Network.WebSockets.Connection (Connection, receiveData, withPingThread)
 import Servant
@@ -22,26 +24,26 @@ import Servant.API.ContentTypes.Lucid
 import Servant.API.WebSocket (WebSocket)
 
 -- Custom HTMX Attributes
-hxGet :: Text -> Attributes
-hxGet = term "hx-get"
+-- hxGet :: Text -> Attributes
+-- hxGet = term "hx-get"
+--
+-- hxTarget :: Text -> Attributes
+-- hxTarget = term "hx-target"
+--
+-- hxSwap :: Text -> Attributes
+-- hxSwap = term "hx-swap"
+--
+-- hxExt :: Text -> Attributes
+-- hxExt = term "hx-ext"
+--
+-- wsConnect :: Text -> Attributes
+-- wsConnect = term "ws-connect"
 
-hxTarget :: Text -> Attributes
-hxTarget = term "hx-target"
+-- wsSend :: Attributes
+-- wsSend = term "ws-send" mempty
 
-hxSwap :: Text -> Attributes
-hxSwap = term "hx-swap"
-
-hxExt :: Text -> Attributes
-hxExt = term "hx-ext"
-
-wsConnect :: Text -> Attributes
-wsConnect = term "ws-connect"
-
-wsSend :: Attributes
-wsSend = term "ws-send" mempty
-
-hxVals :: Text -> Attributes
-hxVals = term "hx-vals"
+-- hxVals :: Text -> Attributes
+-- hxVals = term "hx-vals"
 
 -- API Definition
 type API =

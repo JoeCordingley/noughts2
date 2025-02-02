@@ -1,0 +1,15 @@
+version: "3.8"
+services:
+  nginx:
+    image: nginx:latest
+    volumes:
+      - ./nginx/nginx.common.conf:/etc/nginx/nginx.common.conf:ro
+      - ./nginx/nginx.local.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+    networks:
+      - local_network
+
+networks:
+  local_network:
+    driver: bridge
