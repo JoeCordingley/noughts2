@@ -6,6 +6,7 @@
 
 module Lib (runServer) where
 
+import Control.Concurrent (MVar, forkIO, newEmptyMVar, putMVar)
 import Control.Monad (forever, (<=<))
 import Control.Monad.Error.Class (MonadError, liftEither)
 import Control.Monad.Except (ExceptT, runExceptT)
@@ -49,18 +50,22 @@ import Servant.API.WebSocket (WebSocket)
 type API =
     "api"
         :> ( "message" :> Get '[HTML] (Html ())
-                :<|> "join" :> WebSocket
+                :<|> ("join" :> "O" :> WebSocket)
+                :<|> ("join" :> "X" :> WebSocket)
            )
 
 -- Server Implementation
-server :: Server API
-server = pure messageContent :<|> websocketsApp
+server :: Seats -> Server API
+server (Seats oSeat xSeat) = pure messageContent :<|> websocketsApp oSeat :<|> websocketsApp xSeat
 
-websocketsApp :: Server WebSocket
-websocketsApp conn = keepAlive conn communication
+playerFromConnection :: Connection -> Player
+playerFromConnection conn = undefined
+
+websocketsApp :: MVar Player -> Server WebSocket
+websocketsApp player conn = keepAlive conn communication
   where
     communication :: ExceptT ServerError IO ()
-    communication = liftIO $ forever $ receiveData conn >>= Text.putStrLn
+    communication = liftIO $ putMVar player (playerFromConnection conn)
 
 keepAlive :: (MonadError e m, MonadIO m) => Connection -> ExceptT e IO c -> m c
 keepAlive conn =
@@ -71,11 +76,33 @@ messageContent :: Html ()
 messageContent = p_ "Hello from the server! This was loaded via HTMX."
 
 -- Application
-app :: Application
-app = serve (Proxy :: Proxy API) server
+app :: Seats -> Application
+app seats = do
+    serve (Proxy :: Proxy API) $ server seats
+
+data Seats = Seats {o :: MVar Player, x :: MVar Player}
+
+data Player = Player
+    { getMove :: IO Move
+    , sendUpdate :: Update -> IO ()
+    }
+
+data Move = NW | N | NE | W | C | E | SW | S | SE
+
+data Update = Start | Move Player Move | End
+
+prepareSeats :: IO Seats
+prepareSeats = f <$> newEmptyMVar <*> newEmptyMVar
+  where
+    f o x = Seats o x
 
 -- Main Function
 runServer :: IO ()
 runServer = do
+    seats <- prepareSeats
+    _ <- forkIO $ hostGame seats
     putStrLn "Running on http://localhost:8080/"
-    run 8080 app
+    run 8080 (app seats)
+
+hostGame :: Seats -> IO ()
+hostGame = undefined
