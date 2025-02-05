@@ -6,8 +6,8 @@
 
 module Lib (runServer) where
 
-import Control.Concurrent (MVar, forkIO, newEmptyMVar, putMVar)
-import Control.Monad (forever, (<=<))
+import Control.Concurrent (MVar, forkIO, newEmptyMVar, putMVar, readMVar, takeMVar)
+import Control.Monad (forever, void, (<=<), (>=>))
 import Control.Monad.Error.Class (MonadError, liftEither)
 import Control.Monad.Except (ExceptT, runExceptT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -54,18 +54,19 @@ type API =
                 :<|> ("join" :> "X" :> WebSocket)
            )
 
--- Server Implementation
 server :: Seats -> Server API
-server (Seats oSeat xSeat) = pure messageContent :<|> websocketsApp oSeat :<|> websocketsApp xSeat
+server (Seats oSeat xSeat finished) = pure messageContent :<|> websocketsApp oSeat finished :<|> websocketsApp xSeat finished
 
-playerFromConnection :: Connection -> Player
+playerFromConnection :: Connection -> PlayerInteractions
 playerFromConnection conn = undefined
 
-websocketsApp :: MVar Player -> Server WebSocket
-websocketsApp player conn = keepAlive conn communication
+websocketsApp :: MVar PlayerInteractions -> MVar () -> Server WebSocket
+websocketsApp seat finished conn = keepAlive conn communication
   where
     communication :: ExceptT ServerError IO ()
-    communication = liftIO $ putMVar player (playerFromConnection conn)
+    communication = liftIO $ do
+        putMVar seat (playerFromConnection conn)
+        readMVar finished
 
 keepAlive :: (MonadError e m, MonadIO m) => Connection -> ExceptT e IO c -> m c
 keepAlive conn =
@@ -80,21 +81,18 @@ app :: Seats -> Application
 app seats = do
     serve (Proxy :: Proxy API) $ server seats
 
-data Seats = Seats {o :: MVar Player, x :: MVar Player}
+data Seats = Seats {o :: MVar PlayerInteractions, x :: MVar PlayerInteractions, finished :: MVar ()}
 
-data Player = Player
-    { getMove :: IO Move
-    , sendUpdate :: Update -> IO ()
-    }
+data PlayerInteractions = PlayerInteractions
 
 data Move = NW | N | NE | W | C | E | SW | S | SE
 
-data Update = Start | Move Player Move | End
+data Update = Update Move PostTurnStatus
 
 prepareSeats :: IO Seats
-prepareSeats = f <$> newEmptyMVar <*> newEmptyMVar
+prepareSeats = f <$> newEmptyMVar <*> newEmptyMVar <*> newEmptyMVar
   where
-    f o x = Seats o x
+    f o x f = Seats o x f
 
 -- Main Function
 runServer :: IO ()
@@ -105,4 +103,70 @@ runServer = do
     run 8080 (app seats)
 
 hostGame :: Seats -> IO ()
-hostGame = undefined
+hostGame (Seats oSeat xSeat finished) = do
+    oPlayer <- takeMVar oSeat
+    xPlayer <- takeMVar xSeat
+    play sendUpdate $ getMove oPlayer xPlayer
+    putMVar finished ()
+
+type GetMove f = Game -> f Move
+
+applyMove :: Game -> Move -> PostTurnStatus
+applyMove = undefined
+
+getMove :: PlayerInteractions -> PlayerInteractions -> GetMove IO
+getMove = undefined
+
+sendUpdate :: Update -> IO ()
+sendUpdate = undefined
+
+type SendUpdate f = Update -> f ()
+
+play :: Monad f => SendUpdate f -> GetMove f -> f Result
+play notify getMove = play' startingGame
+  where
+    play' game = do
+        status <- playTurn game
+        case status of
+            Unfinished newGame -> play' newGame
+            Finished result -> pure result
+      where
+        playTurn = updateStatus <=< getMove
+        updateStatus move = status <$ (notify $ Update move status)
+          where
+            status = applyMove game move
+    startingGame = Game O startingBoard
+    startingBoard = pure Nothing
+
+-- playGame :: GetMove -> UpdateStatus -> IO ()
+-- playGame = play O startingBoard where
+--   play player board = do
+--     move <- getMove player
+--     case applyMove player move board of
+--       Unfinished newBoard -> do
+--         updateStatus $ PlayingStatus move (switch player)
+--         play (switch player) newBoard
+--       Finished -> updateStatus $ FinishedStatus
+
+data PostTurnStatus = Unfinished Game | Finished Result
+
+data Game = Game {currentPlayer :: Player, board :: Board}
+type Board = Grid (Maybe Player)
+
+data Grid a = Grid {top :: Row a, middle :: Row a, bottom :: Row a}
+data Row a = Row {left :: a, center :: a, right :: a}
+instance Functor Row where
+    fmap f (Row l c r) = Row (f l) (f c) (f r)
+instance Applicative Row where
+    pure a = Row a a a
+    Row fl fc fr <*> Row l c r = Row (fl l) (fc c) (fr r)
+instance Functor Grid where
+    fmap f (Grid t m b) = Grid (fmap f t) (fmap f m) (fmap f b)
+instance Applicative Grid where
+    pure a = Grid (pure a) (pure a) (pure a)
+    Grid ft fm fb <*> Grid t m b = Grid (ft <*> t) (fm <*> m) (fb <*> b)
+
+data Result = Result
+type UpdateStatus = Update -> IO ()
+
+data Player = O | X
