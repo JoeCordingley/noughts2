@@ -112,7 +112,14 @@ hostGame (Seats oSeat xSeat finished) = do
 type GetMove f = Game -> f Move
 
 applyMove :: Game -> Move -> PostTurnStatus
-applyMove = undefined
+applyMove (Game player board) move = case wonGame of
+    Just wonLines -> Finished $ WonGame wonLines
+    Nothing -> Unfinished $ Game (switch player) newBoard
+  where
+    newBoard = undefined
+    wonGame = undefined
+    switch O = X
+    switch X = O
 
 getMove :: PlayerInteractions -> PlayerInteractions -> GetMove IO
 getMove = undefined
@@ -166,7 +173,9 @@ instance Applicative Grid where
     pure a = Grid (pure a) (pure a) (pure a)
     Grid ft fm fb <*> Grid t m b = Grid (ft <*> t) (fm <*> m) (fb <*> b)
 
-data Result = Result
+data Result = WonGame [WinningLine] | DrawnGame
 type UpdateStatus = Update -> IO ()
+
+data WinningLine = TopRow | MiddleRow | BottomRow | LeftColumn | CenterColumn | RightColumn | DiagonalNWSE | DiagonalNESW
 
 data Player = O | X
