@@ -146,21 +146,16 @@ play notify getMove = play' startingGame
         Game player board = game
     startingGame = Game O startingBoard
     startingBoard = pure Nothing
-
-postTurnStatus :: Player -> Board -> PostTurnStatus
-postTurnStatus player board = case wonGame of
-    Just wonLines -> Finished $ WonGame wonLines
-    Nothing -> case all marked board of
-        True -> Finished DrawnGame
-        False -> Unfinished $ Game (switch player) board
-  where
-    marked = isJust
-    wonGame = foldMap (fmap singleton . uncurry winningLine) winningLines
-    winningLine line spaces =
-        if all markedByThisPlayer spaces
-            then Just line
-            else Nothing
-    markedByThisPlayer space = view (boardLens space) board == Just player
+    postTurnStatus player board = case wonGame of
+        Just wonLines -> Finished $ WonGame wonLines
+        Nothing -> if all marked board then Finished DrawnGame else Unfinished $ Game (switch player) board
+      where
+        wonGame = foldMap (fmap singleton . uncurry winningLine) winningLines
+        winningLine line spaces =
+            if all markedByThisPlayer spaces
+                then Just line
+                else Nothing
+        markedByThisPlayer space = view (boardLens space) board == Just player
     switch O = X
     switch X = O
     winningLines =
@@ -173,6 +168,7 @@ postTurnStatus player board = case wonGame of
         , (DiagonalNWSE, [NW, C, SE])
         , (DiagonalNESW, [NE, C, SW])
         ]
+    marked = isJust
 
 data PostTurnStatus = Unfinished Game | Finished Result
 
