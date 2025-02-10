@@ -1,21 +1,26 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExtendedDefaultRules #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -Wno-type-defaults #-}
 
 module Lib (runServer) where
 
 import Control.Concurrent (MVar, forkIO, newEmptyMVar, putMVar, readMVar, takeMVar)
+import Control.Lens (Lens', set, view)
 import Control.Monad (forever, void, (<=<), (>=>))
 import Control.Monad.Error.Class (MonadError, liftEither)
 import Control.Monad.Except (ExceptT, runExceptT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Data.Maybe (isJust)
 
 -- import Data.Text (Text)
 import qualified Data.Text.IO as Text (putStrLn)
 
 -- import Lucid (Attributes, term)
+
+import Data.List (singleton)
 import Lucid.Base (Html)
 import Lucid.Html5
 import Network.Wai.Handler.Warp (run)
@@ -111,15 +116,10 @@ hostGame (Seats oSeat xSeat finished) = do
 
 type GetMove f = Game -> f Move
 
-applyMove :: Game -> Move -> PostTurnStatus
-applyMove (Game player board) move = case wonGame of
-    Just wonLines -> Finished $ WonGame wonLines
-    Nothing -> Unfinished $ Game (switch player) newBoard
-  where
-    newBoard = undefined
-    wonGame = undefined
-    switch O = X
-    switch X = O
+type BoardLens = forall a. Lens' (Grid a) a
+
+boardLens :: Move -> BoardLens
+boardLens = undefined
 
 getMove :: PlayerInteractions -> PlayerInteractions -> GetMove IO
 getMove = undefined
@@ -133,31 +133,50 @@ play :: Monad f => SendUpdate f -> GetMove f -> f Result
 play notify getMove = play' startingGame
   where
     play' game = do
-        status <- playTurn game
+        status <- playTurn
         case status of
             Unfinished newGame -> play' newGame
             Finished result -> pure result
       where
-        playTurn = updateStatus <=< getMove
+        playTurn = getMove game >>= updateStatus
         updateStatus move = status <$ (notify $ Update move status)
           where
-            status = applyMove game move
+            status = postTurnStatus player $ applyMove board
+            applyMove = set (boardLens move) (Just player)
+        Game player board = game
     startingGame = Game O startingBoard
     startingBoard = pure Nothing
 
--- playGame :: GetMove -> UpdateStatus -> IO ()
--- playGame = play O startingBoard where
---   play player board = do
---     move <- getMove player
---     case applyMove player move board of
---       Unfinished newBoard -> do
---         updateStatus $ PlayingStatus move (switch player)
---         play (switch player) newBoard
---       Finished -> updateStatus $ FinishedStatus
+postTurnStatus :: Player -> Board -> PostTurnStatus
+postTurnStatus player board = case wonGame of
+    Just wonLines -> Finished $ WonGame wonLines
+    Nothing -> case all marked board of
+        True -> Finished DrawnGame
+        False -> Unfinished $ Game (switch player) board
+  where
+    marked = isJust
+    wonGame = foldMap (fmap singleton . uncurry winningLine) winningLines
+    winningLine line spaces =
+        if all markedByThisPlayer spaces
+            then Just line
+            else Nothing
+    markedByThisPlayer space = view (boardLens space) board == Just player
+    switch O = X
+    switch X = O
+    winningLines =
+        [ (TopRow, [NW, N, NE])
+        , (MiddleRow, [W, C, E])
+        , (BottomRow, [SW, S, SE])
+        , (LeftColumn, [NW, W, SW])
+        , (CenterColumn, [N, C, S])
+        , (RightColumn, [NE, E, SE])
+        , (DiagonalNWSE, [NW, C, SE])
+        , (DiagonalNESW, [NE, C, SW])
+        ]
 
 data PostTurnStatus = Unfinished Game | Finished Result
 
-data Game = Game {currentPlayer :: Player, board :: Board}
+data Game = Game Player Board
 type Board = Grid (Maybe Player)
 
 data Grid a = Grid {top :: Row a, middle :: Row a, bottom :: Row a}
@@ -172,10 +191,13 @@ instance Functor Grid where
 instance Applicative Grid where
     pure a = Grid (pure a) (pure a) (pure a)
     Grid ft fm fb <*> Grid t m b = Grid (ft <*> t) (fm <*> m) (fb <*> b)
+instance Foldable Row where
+    foldMap f (Row l c r) = f l <> f c <> f r
+instance Foldable Grid where
+    foldMap f (Grid t m b) = foldMap f t <> foldMap f m <> foldMap f b
 
 data Result = WonGame [WinningLine] | DrawnGame
-type UpdateStatus = Update -> IO ()
 
 data WinningLine = TopRow | MiddleRow | BottomRow | LeftColumn | CenterColumn | RightColumn | DiagonalNWSE | DiagonalNESW
 
-data Player = O | X
+data Player = O | X deriving (Eq)

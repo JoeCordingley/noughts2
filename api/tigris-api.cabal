@@ -38,6 +38,7 @@ library
     , bytestring
     , dani-servant-lucid2
     , http-media
+    , lens
     , lucid2
     , mtl
     , servant
@@ -63,6 +64,7 @@ executable tigris-api-exe
     , bytestring
     , dani-servant-lucid2
     , http-media
+    , lens
     , lucid2
     , mtl
     , servant
@@ -90,6 +92,7 @@ test-suite tigris-api-test
     , bytestring
     , dani-servant-lucid2
     , http-media
+    , lens
     , lucid2
     , mtl
     , servant
