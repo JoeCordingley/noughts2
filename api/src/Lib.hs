@@ -144,36 +144,50 @@ play notify getMove = play' startingGame
             status = postTurnStatus player $ applyMove board
             applyMove = set (boardLens move) (Just player)
         Game player board = game
-    startingGame = Game O startingBoard
-    startingBoard = pure Nothing
-    postTurnStatus player board = case wonGame of
-        Just wonLines -> Finished $ WonGame wonLines
-        Nothing -> if all marked board then Finished DrawnGame else Unfinished $ Game (switch player) board
-      where
-        wonGame = foldMap (fmap singleton . uncurry winningLine) winningLines
-        winningLine line spaces =
-            if all markedByThisPlayer spaces
-                then Just line
-                else Nothing
-        markedByThisPlayer space = view (boardLens space) board == Just player
-    switch O = X
-    switch X = O
-    winningLines =
-        [ (TopRow, [NW, N, NE])
-        , (MiddleRow, [W, C, E])
-        , (BottomRow, [SW, S, SE])
-        , (LeftColumn, [NW, W, SW])
-        , (CenterColumn, [N, C, S])
-        , (RightColumn, [NE, E, SE])
-        , (DiagonalNWSE, [NW, C, SE])
-        , (DiagonalNESW, [NE, C, SW])
-        ]
-    marked = isJust
+
+startingGame :: Game
+startingGame = Game O startingBoard
+
+startingBoard :: Board
+startingBoard = pure Nothing
+
+postTurnStatus :: Player -> Board -> PostTurnStatus
+postTurnStatus player board = case wonGame of
+    Just wonLines -> Finished $ WonGame wonLines
+    Nothing -> if all marked board then Finished DrawnGame else Unfinished $ Game (switch player) board
+  where
+    wonGame = foldMap (fmap singleton . uncurry winningLine) winningLines
+    winningLine line spaces =
+        if all markedByThisPlayer spaces
+            then Just line
+            else Nothing
+    markedByThisPlayer space = view (boardLens space) board == Just player
+
+switch :: Player -> Player
+switch O = X
+switch X = O
+
+winningLines :: [(WinningLine, [Move])]
+winningLines =
+    [ (TopRow, [NW, N, NE])
+    , (MiddleRow, [W, C, E])
+    , (BottomRow, [SW, S, SE])
+    , (LeftColumn, [NW, W, SW])
+    , (CenterColumn, [N, C, S])
+    , (RightColumn, [NE, E, SE])
+    , (DiagonalNWSE, [NW, C, SE])
+    , (DiagonalNESW, [NE, C, SW])
+    ]
+
+type Space = Maybe Player
+
+marked :: Space -> Bool
+marked = isJust
 
 data PostTurnStatus = Unfinished Game | Finished Result
 
 data Game = Game Player Board
-type Board = Grid (Maybe Player)
+type Board = Grid Space
 
 data Grid a = Grid {top :: Row a, middle :: Row a, bottom :: Row a}
 data Row a = Row {left :: a, center :: a, right :: a}
