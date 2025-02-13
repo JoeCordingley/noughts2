@@ -21,10 +21,10 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.List (singleton)
 import Data.Maybe (isJust)
 import qualified Data.Text.IO as Text (putStrLn)
-import Lucid.Base (Html)
+import Lucid.Base (Html, renderText)
 import Lucid.Html5
 import Network.Wai.Handler.Warp (run)
-import Network.WebSockets.Connection (Connection, receiveData, withPingThread)
+import Network.WebSockets.Connection (Connection, sendTextData, withPingThread)
 import Servant
 import Servant.API.ContentTypes.Lucid
 import Servant.API.WebSocket (WebSocket)
@@ -69,15 +69,21 @@ type API =
 server :: Seats -> Server API
 server (Seats oSeat xSeat finished) = pure messageContent :<|> websocketsApp oSeat finished :<|> websocketsApp xSeat finished
 
-playerFromConnection :: Connection -> PlayerInteractions
-playerFromConnection conn = undefined
+-- data PlayerInteractions = PlayerInteractions {playerMove :: PlayerMove IO, playerNotify :: PlayerUpdate -> IO ()}
+playerMove :: Connection -> PlayerMove IO
+playerMove conn = undefined
 
-websocketsApp :: MVar PlayerInteractions -> MVar () -> Server WebSocket
+data PlayerUpdate
+
+-- playerFromConnection :: Connection -> PlayerInteractions
+-- playerFromConnection conn = undefined
+
+websocketsApp :: MVar Connection -> MVar () -> Server WebSocket
 websocketsApp seat finished conn = keepAlive conn communication
   where
     communication :: ExceptT ServerError IO ()
     communication = liftIO $ do
-      putMVar seat (playerFromConnection conn)
+      putMVar seat conn
       readMVar finished
 
 keepAlive :: (MonadError e m, MonadIO m) => Connection -> ExceptT e IO c -> m c
@@ -90,21 +96,18 @@ messageContent = p_ "Hello from the server! This was loaded via HTMX."
 
 -- Application
 app :: Seats -> Application
-app seats = do
-  serve (Proxy :: Proxy API) $ server seats
+app seats = do serve (Proxy :: Proxy API) $ server seats
 
-data Seats = Seats {o :: MVar PlayerInteractions, x :: MVar PlayerInteractions, finished :: MVar ()}
+data Seats = Seats {o :: MVar Connection, x :: MVar Connection, finished :: MVar ()}
 
-data PlayerInteractions = PlayerInteractions
+type PlayerMove f = Board -> f Move
 
 data Move = NW | N | NE | W | C | E | SW | S | SE
 
 data Update = Update Move PostTurnStatus
 
 prepareSeats :: IO Seats
-prepareSeats = f <$> newEmptyMVar <*> newEmptyMVar <*> newEmptyMVar
-  where
-    f o x f = Seats o x f
+prepareSeats = Seats <$> newEmptyMVar <*> newEmptyMVar <*> newEmptyMVar
 
 -- Main Function
 runServer :: IO ()
@@ -118,7 +121,7 @@ hostGame :: Seats -> IO ()
 hostGame (Seats oSeat xSeat finished) = do
   oPlayer <- takeMVar oSeat
   xPlayer <- takeMVar xSeat
-  play sendUpdate $ getMove oPlayer xPlayer
+  _ <- play (sendUpdate oPlayer xPlayer) $ getMove (playerMove oPlayer) (playerMove xPlayer)
   putMVar finished ()
 
 type GetMove f = Game -> f Move
@@ -136,16 +139,25 @@ boardLens SW = bottom . left
 boardLens S = bottom . center
 boardLens SE = bottom . right
 
-getMove :: PlayerInteractions -> PlayerInteractions -> GetMove IO
-getMove = undefined
+getMove :: PlayerMove f -> PlayerMove f -> GetMove f
+getMove oPlayer _ (Game O board) = oPlayer board
+getMove _ xPlayer (Game X board) = xPlayer board
 
-sendUpdate :: Update -> IO ()
-sendUpdate = undefined
+sendUpdate :: Connection -> Connection -> GameMessage -> IO ()
+sendUpdate oPlayer xPlayer StartGame = sendTextData oPlayer oBoard *> sendTextData xPlayer xBoard
+  where
+    oBoard = boardHtml O StartingPlayer
+    xBoard = boardHtml X NonStartingPlayer
+    boardHtml player _ = renderText undefined
 
-type SendUpdate f = Update -> f ()
+data StartingPlayer = StartingPlayer | NonStartingPlayer
 
-play :: (Monad f) => SendUpdate f -> GetMove f -> f Result
-play notify getMove = play' startingGame
+data GameMessage = StartGame | UpdateGame Update
+
+type SendMessage f = GameMessage -> f ()
+
+play :: (Monad f) => SendMessage f -> GetMove f -> f Result
+play notify getMove = notify StartGame *> play' startingGame
   where
     play' game = do
       status <- playTurn
@@ -154,7 +166,7 @@ play notify getMove = play' startingGame
         Finished result -> pure result
       where
         playTurn = getMove game >>= updateStatus
-        updateStatus move = status <$ (notify $ Update move status)
+        updateStatus move = status <$ (notify $ UpdateGame $ Update move status)
           where
             status = postTurnStatus player $ applyMove board
             applyMove = set (boardLens move) (Just player)
