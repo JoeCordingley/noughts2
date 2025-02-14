@@ -21,6 +21,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.List (singleton)
 import Data.Maybe (isJust)
 import qualified Data.Text.IO as Text (putStrLn)
+import GHC.Conc (threadDelay)
 import Lucid.Base (Html, renderText)
 import Lucid.Html5
 import Network.Wai.Handler.Warp (run)
@@ -71,7 +72,9 @@ server (Seats oSeat xSeat finished) = pure messageContent :<|> websocketsApp oSe
 
 -- data PlayerInteractions = PlayerInteractions {playerMove :: PlayerMove IO, playerNotify :: PlayerUpdate -> IO ()}
 playerMove :: Connection -> PlayerMove IO
-playerMove conn = undefined
+playerMove conn _ = do
+  forever $ threadDelay maxBound
+  undefined
 
 data PlayerUpdate
 
@@ -144,11 +147,13 @@ getMove oPlayer _ (Game O board) = oPlayer board
 getMove _ xPlayer (Game X board) = xPlayer board
 
 sendUpdate :: Connection -> Connection -> GameMessage -> IO ()
-sendUpdate oPlayer xPlayer StartGame = sendTextData oPlayer oBoard *> sendTextData xPlayer xBoard
+sendUpdate oPlayer xPlayer message = case message of
+  StartGame -> sendTextData oPlayer oBoard *> sendTextData xPlayer xBoard
+  _ -> undefined
   where
     oBoard = boardHtml O StartingPlayer
     xBoard = boardHtml X NonStartingPlayer
-    boardHtml player _ = renderText undefined
+    boardHtml player _ = renderText $ p_ "Hello from the server! This was loaded via HTMX."
 
 data StartingPlayer = StartingPlayer | NonStartingPlayer
 
