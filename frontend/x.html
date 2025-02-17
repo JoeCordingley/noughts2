@@ -45,20 +45,8 @@
 
 <body>
   <h1>Noughts and Crosses</h1>
-  <div id="game" hx-ext="ws" ws-connect="http://localhost:80/api/wsmessage">
-    <div class="status">Player {player}</div>
-    <div class="board">
-      <div class="cell">X</div>
-      <div class="cell">O</div>
-      <div class="cell"></div>
-      <div class="cell"></div>
-      <div class="cell">X</div>
-      <div class="cell">O</div>
-      <div class="cell">O</div>
-      <div class="cell"></div>
-      <div class="cell">X</div>
-    </div>
-    <button id="change-this" class="status">your turn</button>
+  <div id="game" hx-ext="ws" ws-connect="http://localhost:8080/api/join/X">
+    <p id="board" class="status">connecting...</p>
   </div>
 </body>
 

@@ -35,6 +35,7 @@ dependencies:
 - servant-websockets
 - mtl
 - lens
+- text-show
 
 ghc-options:
 - -Wall

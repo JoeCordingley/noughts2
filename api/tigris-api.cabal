@@ -45,6 +45,7 @@ library
     , servant-server
     , servant-websockets
     , text
+    , text-show
     , wai
     , warp
     , websockets
@@ -71,6 +72,7 @@ executable tigris-api-exe
     , servant-server
     , servant-websockets
     , text
+    , text-show
     , tigris-api
     , wai
     , warp
@@ -99,6 +101,7 @@ test-suite tigris-api-test
     , servant-server
     , servant-websockets
     , text
+    , text-show
     , tigris-api
     , wai
     , warp

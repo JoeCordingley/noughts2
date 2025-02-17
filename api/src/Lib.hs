@@ -14,13 +14,14 @@ import Control.Monad (forever, void, (<=<), (>=>))
 import Control.Monad.Error.Class (MonadError, liftEither)
 import Control.Monad.Except (ExceptT, runExceptT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+
 -- import Data.Text (Text)
 
 -- import Lucid (Attributes, term)
 
 import Data.List (singleton)
 import Data.Maybe (isJust)
-import qualified Data.Text.IO as Text (putStrLn)
+import Data.Text (Text)
 import GHC.Conc (threadDelay)
 import Lucid.Base (Html, renderText)
 import Lucid.Html5
@@ -60,12 +61,15 @@ data Row a = Row {_left :: a, _center :: a, _right :: a}
 makeLenses ''Row
 makeLenses ''Grid
 
+moveString :: Move -> Text
+moveString NW = "NW"
+
 type API =
-  "api"
-    :> ( "message" :> Get '[HTML] (Html ())
-           :<|> ("join" :> "O" :> WebSocket)
-           :<|> ("join" :> "X" :> WebSocket)
-       )
+    "api"
+        :> ( "message" :> Get '[HTML] (Html ())
+                :<|> ("join" :> "O" :> WebSocket)
+                :<|> ("join" :> "X" :> WebSocket)
+           )
 
 server :: Seats -> Server API
 server (Seats oSeat xSeat finished) = pure messageContent :<|> websocketsApp oSeat finished :<|> websocketsApp xSeat finished
@@ -73,8 +77,8 @@ server (Seats oSeat xSeat finished) = pure messageContent :<|> websocketsApp oSe
 -- data PlayerInteractions = PlayerInteractions {playerMove :: PlayerMove IO, playerNotify :: PlayerUpdate -> IO ()}
 playerMove :: Connection -> PlayerMove IO
 playerMove conn _ = do
-  forever $ threadDelay maxBound
-  undefined
+    forever $ threadDelay maxBound
+    undefined
 
 data PlayerUpdate
 
@@ -86,12 +90,14 @@ websocketsApp seat finished conn = keepAlive conn communication
   where
     communication :: ExceptT ServerError IO ()
     communication = liftIO $ do
-      putMVar seat conn
-      readMVar finished
+        putStrLn "Connected!"
+        sendTextData conn $ renderText $ p_ [id_ "board"] "Waiting for opponent..."
+        putMVar seat conn
+        readMVar finished
 
 keepAlive :: (MonadError e m, MonadIO m) => Connection -> ExceptT e IO c -> m c
 keepAlive conn =
-  liftEither <=< liftIO . withPingThread conn 30 (pure ()) . runExceptT
+    liftEither <=< liftIO . withPingThread conn 30 (pure ()) . runExceptT
 
 -- HTMX Response Content
 messageContent :: Html ()
@@ -105,7 +111,10 @@ data Seats = Seats {o :: MVar Connection, x :: MVar Connection, finished :: MVar
 
 type PlayerMove f = Board -> f Move
 
-data Move = NW | N | NE | W | C | E | SW | S | SE
+data Move = NW | N | NE | W | C | E | SW | S | SE deriving (Show, Eq)
+
+moves :: [Move]
+moves = [NW, N, NE, W, C, E, SW, S, SE]
 
 data Update = Update Move PostTurnStatus
 
@@ -115,17 +124,17 @@ prepareSeats = Seats <$> newEmptyMVar <*> newEmptyMVar <*> newEmptyMVar
 -- Main Function
 runServer :: IO ()
 runServer = do
-  seats <- prepareSeats
-  _ <- forkIO $ hostGame seats
-  putStrLn "Running on http://localhost:8080/"
-  run 8080 (app seats)
+    seats <- prepareSeats
+    _ <- forkIO $ hostGame seats
+    putStrLn "Running on http://localhost:8080/"
+    run 8080 (app seats)
 
 hostGame :: Seats -> IO ()
 hostGame (Seats oSeat xSeat finished) = do
-  oPlayer <- takeMVar oSeat
-  xPlayer <- takeMVar xSeat
-  _ <- play (sendUpdate oPlayer xPlayer) $ getMove (playerMove oPlayer) (playerMove xPlayer)
-  putMVar finished ()
+    oPlayer <- takeMVar oSeat
+    xPlayer <- takeMVar xSeat
+    _ <- play (sendUpdate oPlayer xPlayer) $ getMove (playerMove oPlayer) (playerMove xPlayer)
+    putMVar finished ()
 
 type GetMove f = Game -> f Move
 
@@ -148,12 +157,15 @@ getMove _ xPlayer (Game X board) = xPlayer board
 
 sendUpdate :: Connection -> Connection -> GameMessage -> IO ()
 sendUpdate oPlayer xPlayer message = case message of
-  StartGame -> sendTextData oPlayer oBoard *> sendTextData xPlayer xBoard
-  _ -> undefined
+    StartGame -> sendTextData oPlayer oBoard *> sendTextData xPlayer xBoard
+    _ -> undefined
   where
-    oBoard = boardHtml O StartingPlayer
-    xBoard = boardHtml X NonStartingPlayer
-    boardHtml player _ = renderText $ p_ "Hello from the server! This was loaded via HTMX."
+    oBoard = boardHtml
+    xBoard = boardHtml
+    boardHtml = renderText $ div_ [id_ "board"] $ mapM_ square moves
+      where
+        square :: Move -> Html ()
+        square move = div_ [id_ $ moveString move] $ ""
 
 data StartingPlayer = StartingPlayer | NonStartingPlayer
 
@@ -165,10 +177,10 @@ play :: (Monad f) => SendMessage f -> GetMove f -> f Result
 play notify getMove = notify StartGame *> play' startingGame
   where
     play' game = do
-      status <- playTurn
-      case status of
-        Unfinished newGame -> play' newGame
-        Finished result -> pure result
+        status <- playTurn
+        case status of
+            Unfinished newGame -> play' newGame
+            Finished result -> pure result
       where
         playTurn = getMove game >>= updateStatus
         updateStatus move = status <$ (notify $ UpdateGame $ Update move status)
@@ -185,14 +197,14 @@ startingBoard = pure Nothing
 
 postTurnStatus :: Player -> Board -> PostTurnStatus
 postTurnStatus player board = case wonGame of
-  Just wonLines -> Finished $ WonGame wonLines
-  Nothing -> if all marked board then Finished DrawnGame else Unfinished $ Game (switch player) board
+    Just wonLines -> Finished $ WonGame wonLines
+    Nothing -> if all marked board then Finished DrawnGame else Unfinished $ Game (switch player) board
   where
     wonGame = foldMap (fmap singleton . uncurry winningLine) winningLines
     winningLine line spaces =
-      if all markedByThisPlayer spaces
-        then Just line
-        else Nothing
+        if all markedByThisPlayer spaces
+            then Just line
+            else Nothing
     markedByThisPlayer space = view (boardLens space) board == Just player
 
 switch :: Player -> Player
@@ -201,15 +213,15 @@ switch X = O
 
 winningLines :: [(WinningLine, [Move])]
 winningLines =
-  [ (TopRow, [NW, N, NE]),
-    (MiddleRow, [W, C, E]),
-    (BottomRow, [SW, S, SE]),
-    (LeftColumn, [NW, W, SW]),
-    (CenterColumn, [N, C, S]),
-    (RightColumn, [NE, E, SE]),
-    (DiagonalNWSE, [NW, C, SE]),
-    (DiagonalNESW, [NE, C, SW])
-  ]
+    [ (TopRow, [NW, N, NE])
+    , (MiddleRow, [W, C, E])
+    , (BottomRow, [SW, S, SE])
+    , (LeftColumn, [NW, W, SW])
+    , (CenterColumn, [N, C, S])
+    , (RightColumn, [NE, E, SE])
+    , (DiagonalNWSE, [NW, C, SE])
+    , (DiagonalNESW, [NE, C, SW])
+    ]
 
 type Space = Maybe Player
 
@@ -223,24 +235,24 @@ data Game = Game Player Board
 type Board = Grid Space
 
 instance Functor Row where
-  fmap f (Row l c r) = Row (f l) (f c) (f r)
+    fmap f (Row l c r) = Row (f l) (f c) (f r)
 
 instance Applicative Row where
-  pure a = Row a a a
-  Row fl fc fr <*> Row l c r = Row (fl l) (fc c) (fr r)
+    pure a = Row a a a
+    Row fl fc fr <*> Row l c r = Row (fl l) (fc c) (fr r)
 
 instance Functor Grid where
-  fmap f (Grid t m b) = Grid (fmap f t) (fmap f m) (fmap f b)
+    fmap f (Grid t m b) = Grid (fmap f t) (fmap f m) (fmap f b)
 
 instance Applicative Grid where
-  pure a = Grid (pure a) (pure a) (pure a)
-  Grid ft fm fb <*> Grid t m b = Grid (ft <*> t) (fm <*> m) (fb <*> b)
+    pure a = Grid (pure a) (pure a) (pure a)
+    Grid ft fm fb <*> Grid t m b = Grid (ft <*> t) (fm <*> m) (fb <*> b)
 
 instance Foldable Row where
-  foldMap f (Row l c r) = f l <> f c <> f r
+    foldMap f (Row l c r) = f l <> f c <> f r
 
 instance Foldable Grid where
-  foldMap f (Grid t m b) = foldMap f t <> foldMap f m <> foldMap f b
+    foldMap f (Grid t m b) = foldMap f t <> foldMap f m <> foldMap f b
 
 data Result = WonGame [WinningLine] | DrawnGame
 
