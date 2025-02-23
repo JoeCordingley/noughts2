@@ -4,29 +4,21 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -Wno-type-defaults #-}
 
 module Lib (runServer) where
 
+import BasicPrelude
 import Control.Concurrent (MVar, forkIO, newEmptyMVar, putMVar, readMVar, takeMVar)
 import Control.Lens
-import Control.Monad (forever, void, (<=<), (>=>))
 import Control.Monad.Error.Class (MonadError, liftEither)
 import Control.Monad.Except (ExceptT, runExceptT)
-import Control.Monad.IO.Class (MonadIO, liftIO)
-
--- import Data.Text (Text)
-
--- import Lucid (Attributes, term)
-
-import Data.List (singleton)
-import Data.Maybe (isJust)
-import Data.Text (Text)
 import GHC.Conc (threadDelay)
 import Lucid.Base (Html, renderText)
 import Lucid.Html5
 import Network.Wai.Handler.Warp (run)
-import Network.WebSockets.Connection (Connection, sendTextData, withPingThread)
+import Network.WebSockets.Connection (Connection, receiveData, sendTextData, withPingThread)
 import Servant
 import Servant.API.ContentTypes.Lucid
 import Servant.API.WebSocket (WebSocket)
@@ -62,7 +54,7 @@ makeLenses ''Row
 makeLenses ''Grid
 
 moveString :: Move -> Text
-moveString NW = "NW"
+moveString = tshow
 
 type API =
     "api"
@@ -77,7 +69,8 @@ server (Seats oSeat xSeat finished) = pure messageContent :<|> websocketsApp oSe
 -- data PlayerInteractions = PlayerInteractions {playerMove :: PlayerMove IO, playerNotify :: PlayerUpdate -> IO ()}
 playerMove :: Connection -> PlayerMove IO
 playerMove conn _ = do
-    forever $ threadDelay maxBound
+    json <- receiveData conn
+    putStrLn $ "Received: " <> json
     undefined
 
 data PlayerUpdate
@@ -162,10 +155,10 @@ sendUpdate oPlayer xPlayer message = case message of
   where
     oBoard = boardHtml
     xBoard = boardHtml
-    boardHtml = renderText $ div_ [id_ "board"] $ mapM_ square moves
+    boardHtml = renderText $ div_ [class_ "board", id_ "board"] $ mapM_ square moves
       where
         square :: Move -> Html ()
-        square move = div_ [id_ $ moveString move] $ ""
+        square move = div_ [id_ $ moveString move, class_ "cell"] $ ""
 
 data StartingPlayer = StartingPlayer | NonStartingPlayer
 

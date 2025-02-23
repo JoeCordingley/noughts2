@@ -36,6 +36,7 @@ dependencies:
 - mtl
 - lens
 - text-show
+- basic-prelude
 
 ghc-options:
 - -Wall
