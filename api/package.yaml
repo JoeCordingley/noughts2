@@ -24,7 +24,6 @@ dependencies:
 - servant
 - warp
 - wai
-- wai
 - servant-server
 - text
 - http-media
@@ -37,6 +36,7 @@ dependencies:
 - lens
 - text-show
 - basic-prelude
+- aeson
 
 ghc-options:
 - -Wall
