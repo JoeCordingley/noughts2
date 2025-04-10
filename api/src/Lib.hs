@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExtendedDefaultRules #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -7,15 +8,19 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -Wno-type-defaults #-}
 
-module Lib (runServer) where
+module Lib (runServer, Move (..), MoveObject (..)) where
 
 import BasicPrelude
 import Control.Concurrent (MVar, forkIO, newEmptyMVar, putMVar, readMVar, takeMVar)
 import Control.Lens
 import Control.Monad.Error.Class (MonadError, liftEither)
 import Control.Monad.Except (ExceptT, runExceptT)
-import Data.Aeson (FromJSON (parseJSON), withObject, (.:))
+import Data.Aeson (FromJSON (parseJSON), ToJSON, encode, withObject, (.:))
+import Data.Aeson.Text (encodeToLazyText)
+import Data.Text.Encoding (decodeLatin1)
+import qualified Data.Text.Lazy as TL
 import GHC.Conc (threadDelay)
+import GHC.Generics (Generic)
 import Lucid (term)
 import Lucid.Base (Attributes, Html, renderText)
 import Lucid.Html5
@@ -44,8 +49,8 @@ import Servant.API.WebSocket (WebSocket)
 wsSend :: Attributes
 wsSend = term "ws-send" mempty
 
--- hxVals :: Text -> Attributes
--- hxVals = term "hx-vals"
+hxVals :: Text -> Attributes
+hxVals = term "hx-vals"
 
 -- API Definition
 data Grid a = Grid {_top :: Row a, _middle :: Row a, _bottom :: Row a}
@@ -69,11 +74,18 @@ server :: Seats -> Server API
 server (Seats (Players oSeat xSeat) finished) = pure messageContent :<|> websocketsApp oSeat finished :<|> websocketsApp xSeat finished
 
 -- data PlayerInteractions = PlayerInteractions {playerMove :: PlayerMove IO, playerNotify :: PlayerUpdate -> IO ()}
+playerMoveE :: Connection -> PlayerMove (ExceptT ServerError IO)
+playerMoveE = undefined
+
 playerMove :: Connection -> PlayerMove IO
-playerMove conn _ = do
-  json <- receiveData conn
-  putStrLn $ "Received: " <> json
-  undefined
+playerMove conn board = do
+  maybeMove <- runExceptT $ playerMoveE conn board
+  liftEither maybeMove
+
+-- playerMove conn _ = do
+--  json <- receiveData conn
+--  putStrLn $ "Received: " <> json
+--  undefined
 
 data PlayerUpdate
 
@@ -81,18 +93,17 @@ data PlayerUpdate
 -- playerFromConnection conn = undefined
 
 websocketsApp :: MVar Connection -> MVar () -> Server WebSocket
-websocketsApp seat finished conn = keepAlive conn communication
+websocketsApp seat finished conn = liftIO $ keepAlive conn communication
   where
-    communication :: ExceptT ServerError IO ()
-    communication = liftIO $ do
+    communication = do
       putStrLn "Connected!"
       sendTextData conn $ renderText $ p_ [id_ "board"] "Waiting for opponent..."
       putMVar seat conn
       readMVar finished
 
-keepAlive :: (MonadError e m, MonadIO m) => Connection -> ExceptT e IO c -> m c
+keepAlive :: Connection -> IO c -> IO c
 keepAlive conn =
-  liftEither <=< liftIO . withPingThread conn 30 (pure ()) . runExceptT
+  withPingThread conn 30 (pure ())
 
 -- HTMX Response Content
 messageContent :: Html ()
@@ -108,7 +119,11 @@ data Players a = Players {o :: a, x :: a}
 
 type PlayerMove f = Board -> f Move
 
-data Move = NW | N | NE | W | C | E | SW | S | SE deriving (Show, Eq)
+data Move = NW | N | NE | W | C | E | SW | S | SE deriving (Show, Eq, Generic)
+
+instance FromJSON Move
+
+instance ToJSON Move
 
 moves :: [Move]
 moves = [NW, N, NE, W, C, E, SW, S, SE]
@@ -164,7 +179,10 @@ sendUpdate oPlayer xPlayer (Update board status) = case status of
       boardHtml = renderText $ div_ [class_ "board", id_ "board"] $ mapM_ square moves
         where
           square :: Move -> Html ()
-          square move = button_ [id_ $ moveString move, class_ "cell", wsSend] $ ""
+          square move = button_ [id_ $ moveString move, class_ "cell", wsSend, hxVals $ encodeToText $ MoveObject move] $ ""
+
+encodeToText :: (ToJSON a) => a -> Text
+encodeToText = TL.toStrict . encodeToLazyText
 
 type SendMessage f = Update -> f ()
 
@@ -266,16 +284,9 @@ data WinningLine = TopRow | MiddleRow | BottomRow | LeftColumn | CenterColumn | 
 
 data Player = O | X deriving (Eq)
 
-data HxTriggered a = HxTriggered a
+data MoveObject = MoveObject {move :: Move} deriving (Generic)
 
-data MoveRequest = MoveRequest Move
-
-instance (FromJSON a) => FromJSON (HxTriggered a) where
-  parseJSON = withObject "HxTriggered" $ \o -> do
-    headers <- o .: "HEADERS"
-    hxTrigger <- headers .: "HX-Trigger"
-    a <- parseJSON hxTrigger
-    return $ HxTriggered a
+instance ToJSON MoveObject
 
 -- t :: Lens' (Grid a) (Row a)
 -- t f s = fmap g $ f $ top s
