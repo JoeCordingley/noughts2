@@ -15,8 +15,12 @@ import Control.Concurrent (MVar, forkIO, newEmptyMVar, putMVar, readMVar, takeMV
 import Control.Lens
 import Control.Monad.Error.Class (MonadError, liftEither)
 import Control.Monad.Except (ExceptT, runExceptT)
-import Data.Aeson (FromJSON (parseJSON), ToJSON, encode, withObject, (.:))
+import Data.Aeson (FromJSON (..), ToJSON, decode, encode, withObject, (.:))
 import Data.Aeson.Text (encodeToLazyText)
+import Data.Foldable (toList)
+import Data.Monoid (Any (..))
+import Data.Semigroup
+import Data.Text (pack)
 import Data.Text.Encoding (decodeLatin1)
 import qualified Data.Text.Lazy as TL
 import GHC.Conc (threadDelay)
@@ -29,22 +33,6 @@ import Network.WebSockets.Connection (Connection, receiveData, sendTextData, wit
 import Servant
 import Servant.API.ContentTypes.Lucid
 import Servant.API.WebSocket (WebSocket)
-
--- Custom HTMX Attributes
--- hxGet :: Text -> Attributes
--- hxGet = term "hx-get"
---
--- hxTarget :: Text -> Attributes
--- hxTarget = term "hx-target"
---
--- hxSwap :: Text -> Attributes
--- hxSwap = term "hx-swap"
---
--- hxExt :: Text -> Attributes
--- hxExt = term "hx-ext"
---
--- wsConnect :: Text -> Attributes
--- wsConnect = term "ws-connect"
 
 wsSend :: Attributes
 wsSend = term "ws-send" mempty
@@ -65,32 +53,22 @@ moveString = tshow
 
 type API =
   "api"
-    :> ( "message" :> Get '[HTML] (Html ())
-           :<|> ("join" :> "O" :> WebSocket)
+    :> ( ("join" :> "O" :> WebSocket)
            :<|> ("join" :> "X" :> WebSocket)
        )
 
 server :: Seats -> Server API
-server (Seats (Players oSeat xSeat) finished) = pure messageContent :<|> websocketsApp oSeat finished :<|> websocketsApp xSeat finished
-
--- data PlayerInteractions = PlayerInteractions {playerMove :: PlayerMove IO, playerNotify :: PlayerUpdate -> IO ()}
-playerMoveE :: Connection -> PlayerMove (ExceptT ServerError IO)
-playerMoveE = undefined
+server (Seats (Players oSeat xSeat) finished) = websocketsApp oSeat finished :<|> websocketsApp xSeat finished
 
 playerMove :: Connection -> PlayerMove IO
-playerMove conn board = do
-  maybeMove <- runExceptT $ playerMoveE conn board
-  liftEither maybeMove
-
--- playerMove conn _ = do
---  json <- receiveData conn
---  putStrLn $ "Received: " <> json
---  undefined
-
-data PlayerUpdate
-
--- playerFromConnection :: Connection -> PlayerInteractions
--- playerFromConnection conn = undefined
+playerMove conn board = maybePlayerMove
+  where
+    maybePlayerMove = do
+      msg <- receiveData conn
+      case decode msg of
+        Just (MoveObject move) -> do
+          pure move
+        Nothing -> fail "Invalid move received"
 
 websocketsApp :: MVar Connection -> MVar () -> Server WebSocket
 websocketsApp seat finished conn = liftIO $ keepAlive conn communication
@@ -128,7 +106,8 @@ instance ToJSON Move
 moves :: [Move]
 moves = [NW, N, NE, W, C, E, SW, S, SE]
 
-data Update = Update Board GameStatus
+moveGrid :: Grid Move
+moveGrid = Grid (Row NW N NE) (Row W C E) (Row SW S SE)
 
 prepareSeats :: IO Seats
 prepareSeats = Seats <$> (Players <$> newEmptyMVar <*> newEmptyMVar) <*> newEmptyMVar
@@ -146,7 +125,7 @@ hostGame (Seats (Players oSeat xSeat) finished) = do
   oPlayer <- takeMVar oSeat
   xPlayer <- takeMVar xSeat
   _ <- play (sendUpdate oPlayer xPlayer) $ getMove (playerMove oPlayer) (playerMove xPlayer)
-  putMVar finished ()
+  forever $ threadDelay 10000
 
 type GetMove f = GameInPlay -> f Move
 
@@ -167,19 +146,73 @@ getMove :: PlayerMove f -> PlayerMove f -> GetMove f
 getMove oPlayer _ (GameInPlay O board) = oPlayer board
 getMove _ xPlayer (GameInPlay X board) = xPlayer board
 
+emptyWonGrid :: Grid Bool
+emptyWonGrid = pure False
+
 sendUpdate :: Connection -> Connection -> Update -> IO ()
 sendUpdate oPlayer xPlayer (Update board status) = case status of
-  Unfinished player -> sendTextData activePlayer activeBoard *> sendTextData inactivePlayer inactiveBoard
+  Unfinished player -> sendHtml activePlayer (boardHtml emptyWonGrid (Active ThisPlayer)) *> sendHtml inactivePlayer (boardHtml emptyWonGrid (Active OtherPlayer))
     where
       (activePlayer, inactivePlayer) = case player of
         O -> (oPlayer, xPlayer)
         X -> (xPlayer, oPlayer)
-      activeBoard = boardHtml
-      inactiveBoard = boardHtml
-      boardHtml = renderText $ div_ [class_ "board", id_ "board"] $ mapM_ square moves
+  FinishedStatus result -> sendHtml oPlayer (finishedBoard O) *> sendHtml xPlayer (finishedBoard X)
+    where
+      finishedBoard player = boardHtml wonGrid (Ended clientResult)
         where
-          square :: Move -> Html ()
-          square move = button_ [id_ $ moveString move, class_ "cell", wsSend, hxVals $ encodeToText $ MoveObject move] $ ""
+          (clientResult, wonGrid) = case result of
+            WonGame winningPlayer winningLines ->
+              if player == winningPlayer
+                then (Won ThisPlayer, wonGrid)
+                else (Won OtherPlayer, wonGrid)
+              where
+                wonGrid = fmap getAny $ foldMap (fmap Any . lineGrids) winningLines
+            DrawnGame -> (Drawn, emptyWonGrid)
+  where
+    boardHtml :: Grid Bool -> Activity -> Html ()
+    boardHtml wonGrid activity = div_ [class_ "board", id_ "board"] $ sequence_ (square activity <$> wonGrid <*> moveGrid <*> board) *> div_ [class_ "status"] status
+      where
+        status = case activity of
+          Active ThisPlayer -> "your turn"
+          Active OtherPlayer -> "their turn"
+          Ended Drawn -> "draw"
+          Ended (Won ThisPlayer) -> "you won!"
+          Ended (Won OtherPlayer) -> "they won :("
+
+sendHtml :: Connection -> Html () -> IO ()
+sendHtml conn html = do
+  sendTextData conn $ renderText html
+
+data Update = Update Board GameStatus
+
+data Result = WonGame Player [WinningLine] | DrawnGame
+
+data GameStatus = Unfinished Player | FinishedStatus Result
+
+data ClientResult = Drawn | Won ThisOrOtherPlayer
+
+type WonSquare = Bool
+
+square :: Activity -> WonSquare -> Move -> Space -> Html ()
+square activity wonSquare move space = button_ attrs content
+  where
+    attrs =
+      defaultAttrs <> case (activity, space) of
+        (Active ThisPlayer, Nothing) -> activeAttrs
+        _ -> if wonSquare then [class_ "winning-cell"] else []
+    defaultAttrs = [id_ $ moveString move, class_ "cell"]
+    activeAttrs = [wsSend, hxVals $ encodeToText $ MoveObject move]
+    content = case space of
+      Nothing -> " "
+      Just player -> case player of
+        O -> "O"
+        X -> "X"
+
+data CellStatus
+
+data ThisOrOtherPlayer = ThisPlayer | OtherPlayer
+
+data Activity = Active ThisOrOtherPlayer | Ended ClientResult
 
 encodeToText :: (ToJSON a) => a -> Text
 encodeToText = TL.toStrict . encodeToLazyText
@@ -219,31 +252,47 @@ startingBoard = pure Nothing
 
 postTurnStatus :: Player -> Board -> GameStatus
 postTurnStatus player board = case wonGame of
-  Just wonLines -> FinishedStatus $ WonGame wonLines
+  Just wonLines -> FinishedStatus $ WonGame player wonLines
   Nothing -> if all marked board then FinishedStatus DrawnGame else Unfinished (switch player)
   where
-    wonGame = foldMap (fmap singleton . uncurry winningLine) winningLines
-    winningLine line spaces =
+    wonGame = foldMap (fmap singleton . winningLine) winningLines
+    winningLine line =
       if all markedByThisPlayer spaces
         then Just line
         else Nothing
+      where
+        spaces = winningLineMoves line
     markedByThisPlayer space = view (boardLens space) board == Just player
 
 switch :: Player -> Player
 switch O = X
 switch X = O
 
-winningLines :: [(WinningLine, [Move])]
+winningLineMoves :: WinningLine -> [Move]
+winningLineMoves winningLine = case winningLine of
+  TopRow -> [NW, N, NE]
+  MiddleRow -> [W, C, E]
+  BottomRow -> [SW, S, SE]
+  LeftColumn -> [NW, W, SW]
+  CenterColumn -> [N, C, S]
+  RightColumn -> [NE, E, SE]
+  DiagonalNWSE -> [NW, C, SE]
+  DiagonalNESW -> [NE, C, SW]
+
+winningLines :: [WinningLine]
 winningLines =
-  [ (TopRow, [NW, N, NE]),
-    (MiddleRow, [W, C, E]),
-    (BottomRow, [SW, S, SE]),
-    (LeftColumn, [NW, W, SW]),
-    (CenterColumn, [N, C, S]),
-    (RightColumn, [NE, E, SE]),
-    (DiagonalNWSE, [NW, C, SE]),
-    (DiagonalNESW, [NE, C, SW])
+  [ TopRow,
+    MiddleRow,
+    BottomRow,
+    LeftColumn,
+    CenterColumn,
+    RightColumn,
+    DiagonalNWSE,
+    DiagonalNESW
   ]
+
+lineGrids :: WinningLine -> Grid Bool
+lineGrids = undefined
 
 type Space = Maybe Player
 
@@ -251,8 +300,6 @@ marked :: Space -> Bool
 marked = isJust
 
 data Game = Playing GameInPlay | Finished Result
-
-data GameStatus = Unfinished Player | FinishedStatus Result
 
 data GameInPlay = GameInPlay Player Board
 
@@ -278,7 +325,11 @@ instance Foldable Row where
 instance Foldable Grid where
   foldMap f (Grid t m b) = foldMap f t <> foldMap f m <> foldMap f b
 
-data Result = WonGame [WinningLine] | DrawnGame
+instance (Semigroup a) => Semigroup (Grid a) where
+  l <> r = (<>) <$> l <*> r
+
+instance (Monoid a) => Monoid (Grid a) where
+  mempty = pure mempty
 
 data WinningLine = TopRow | MiddleRow | BottomRow | LeftColumn | CenterColumn | RightColumn | DiagonalNWSE | DiagonalNESW
 
@@ -287,6 +338,8 @@ data Player = O | X deriving (Eq)
 data MoveObject = MoveObject {move :: Move} deriving (Generic)
 
 instance ToJSON MoveObject
+
+instance FromJSON MoveObject
 
 -- t :: Lens' (Grid a) (Row a)
 -- t f s = fmap g $ f $ top s
