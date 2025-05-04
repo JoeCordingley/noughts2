@@ -25,7 +25,8 @@ source-repository head
 
 library
   exposed-modules:
-      Lib
+      Api
+      Game
   other-modules:
       Paths_tigris_api
   autogen-modules:
