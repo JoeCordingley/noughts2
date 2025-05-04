@@ -51,26 +51,23 @@ type API =
        )
 
 server :: Seats -> Server API
-server (Seats (Players oSeat xSeat) finished) = websocketsApp oSeat finished :<|> websocketsApp xSeat finished
+server (Seats (Players oSeat xSeat) finishedVar) = websocketsAppFromSeat oSeat finishedVar :<|> websocketsAppFromSeat xSeat finishedVar
 
 playerMoveFromConnection :: Connection -> PlayerMove IO
-playerMoveFromConnection conn = const maybePlayerMove
-  where
-    maybePlayerMove = do
-      msg <- receiveData conn
-      case decode msg of
-        Just (MoveObject move) -> do
-          pure move
-        Nothing -> fail "Invalid move received"
+playerMoveFromConnection conn = const $ do
+  msg <- receiveData conn
+  case decode msg of
+    Just (MoveObject move) -> pure move
+    Nothing -> fail "Invalid move received"
 
-websocketsApp :: MVar Connection -> MVar () -> Server WebSocket
-websocketsApp seat finished conn = liftIO $ keepAlive conn communication
+websocketsAppFromSeat :: MVar Connection -> MVar () -> Server WebSocket
+websocketsAppFromSeat seat finishedVar conn = liftIO $ keepAlive conn communication
   where
     communication = do
       putStrLn "Connected!"
       sendTextData conn $ renderText $ p_ [id_ "board"] "Waiting for opponent..."
       putMVar seat conn
-      readMVar finished
+      readMVar finishedVar
 
 keepAlive :: Connection -> IO c -> IO c
 keepAlive conn =
@@ -78,7 +75,7 @@ keepAlive conn =
 
 -- Application
 app :: Seats -> Application
-app seats = do serve (Proxy :: Proxy API) $ server seats
+app seats = serve (Proxy :: Proxy API) $ server seats
 
 data Seats = Seats {players :: Players (MVar Connection), finished :: MVar ()}
 
@@ -110,10 +107,10 @@ runServer = do
   run 8080 (app seats)
 
 hostGame :: Seats -> IO ()
-hostGame (Seats (Players oSeat xSeat) finished) = do
-  oPlayer <- takeMVar oSeat
-  xPlayer <- takeMVar xSeat
-  _ <- play (sendUpdate oPlayer xPlayer) $ getMoveFromPlayer (playerMoveFromConnection oPlayer) (playerMoveFromConnection xPlayer)
+hostGame (Seats (Players oSeat xSeat) finishedVar) = do
+  oConn <- takeMVar oSeat
+  xConn <- takeMVar xSeat
+  _ <- play (sendUpdateToClients oConn xConn) $ getMoveFromPlayers (playerMoveFromConnection oConn) (playerMoveFromConnection xConn)
   forever $ threadDelay 10000
 
 type GetMove f = GameInPlay -> f Move
@@ -131,31 +128,31 @@ boardLens SW = bottom . left
 boardLens S = bottom . center
 boardLens SE = bottom . right
 
-getMoveFromPlayer :: PlayerMove f -> PlayerMove f -> GetMove f
-getMoveFromPlayer oPlayer _ (GameInPlay O board) = oPlayer board
-getMoveFromPlayer _ xPlayer (GameInPlay X board) = xPlayer board
+getMoveFromPlayers :: PlayerMove f -> PlayerMove f -> GetMove f
+getMoveFromPlayers oMove _ (GameInPlay O board) = oMove board
+getMoveFromPlayers _ xMove (GameInPlay X board) = xMove board
 
 emptyWonGrid :: Grid Bool
 emptyWonGrid = pure False
 
-sendUpdate :: Connection -> Connection -> Update -> IO ()
-sendUpdate oPlayer xPlayer (Update board status) = case status of
-  Unfinished player -> sendHtml activePlayer (boardHtml emptyWonGrid (Active ThisPlayer)) *> sendHtml inactivePlayer (boardHtml emptyWonGrid (Active OtherPlayer))
+sendUpdateToClients :: Connection -> Connection -> Update -> IO ()
+sendUpdateToClients oConn xConn (Update board status) = case status of
+  Unfinished player -> sendHtml oConn (boardHtml emptyWonGrid (Active thisPlayer)) *> sendHtml xConn (boardHtml emptyWonGrid (Active otherPlayer))
     where
-      (activePlayer, inactivePlayer) = case player of
-        O -> (oPlayer, xPlayer)
-        X -> (xPlayer, oPlayer)
-  FinishedStatus result -> sendHtml oPlayer (finishedBoard O) *> sendHtml xPlayer (finishedBoard X)
+      (thisPlayer, otherPlayer) = case player of
+        O -> (ThisPlayer, OtherPlayer)
+        X -> (OtherPlayer, ThisPlayer)
+  FinishedStatus result -> sendHtml oConn (finishedBoardHtml O) *> sendHtml xConn (finishedBoardHtml X)
     where
-      finishedBoard player = boardHtml wonGrid (Ended clientResult)
+      finishedBoardHtml player = boardHtml winningSquares (Ended clientResult)
         where
-          (clientResult, wonGrid) = case result of
-            WonGame winningPlayer winningLines ->
-              if player == winningPlayer
-                then (Won ThisPlayer, wonGrid)
-                else (Won OtherPlayer, wonGrid)
+          (clientResult, winningSquares) = case result of
+            WonGame winner winningLines' ->
+              if player == winner
+                then (Won ThisPlayer, winningSquares')
+                else (Won OtherPlayer, winningSquares')
               where
-                wonGrid = fmap getAny $ foldMap (fmap Any . gridForWinningLine) winningLines
+                winningSquares' = fmap getAny $ foldMap (fmap Any . gridForWinningLine) winningLines'
             DrawnGame -> (Drawn, emptyWonGrid)
   where
     boardHtml :: Grid Bool -> Activity -> Html ()
@@ -169,8 +166,7 @@ sendUpdate oPlayer xPlayer (Update board status) = case status of
           Ended (Won OtherPlayer) -> "they won :("
 
 sendHtml :: Connection -> Html () -> IO ()
-sendHtml conn html = do
-  sendTextData conn $ renderText html
+sendHtml conn html = sendTextData conn $ renderText html
 
 data Update = Update Board GameStatus
 
@@ -248,8 +244,7 @@ postTurnStatus player board = case wonGame of
         then Just spaces
         else Nothing
       where
-
-    markedByThisPlayer space = view (boardLens space) board == Just player
+        markedByThisPlayer space = view (boardLens space) board == Just player
 
 switch :: Player -> Player
 switch O = X
