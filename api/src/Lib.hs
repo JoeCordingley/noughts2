@@ -8,20 +8,14 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -Wno-type-defaults #-}
 
-module Lib (runServer, Move (..), MoveObject (..)) where
+module Lib (runServer, Move (..), MoveKey (..)) where
 
 import BasicPrelude
 import Control.Concurrent (MVar, forkIO, newEmptyMVar, putMVar, readMVar, takeMVar)
 import Control.Lens
-import Control.Monad.Error.Class (MonadError, liftEither)
-import Control.Monad.Except (ExceptT, runExceptT)
-import Data.Aeson (FromJSON (..), ToJSON, decode, encode, withObject, (.:))
+import Data.Aeson (FromJSON (..), ToJSON, decode)
 import Data.Aeson.Text (encodeToLazyText)
-import Data.Foldable (toList)
-import Data.Monoid (Any (..))
 import Data.Semigroup
-import Data.Text (pack)
-import Data.Text.Encoding (decodeLatin1)
 import qualified Data.Text.Lazy as TL
 import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
@@ -31,7 +25,6 @@ import Lucid.Html5
 import Network.Wai.Handler.Warp (run)
 import Network.WebSockets.Connection (Connection, receiveData, sendTextData, withPingThread)
 import Servant
-import Servant.API.ContentTypes.Lucid
 import Servant.API.WebSocket (WebSocket)
 
 wsSend :: Attributes
@@ -60,8 +53,8 @@ type API =
 server :: Seats -> Server API
 server (Seats (Players oSeat xSeat) finished) = websocketsApp oSeat finished :<|> websocketsApp xSeat finished
 
-playerMove :: Connection -> PlayerMove IO
-playerMove conn board = maybePlayerMove
+playerMoveFromConnection :: Connection -> PlayerMove IO
+playerMoveFromConnection conn = const maybePlayerMove
   where
     maybePlayerMove = do
       msg <- receiveData conn
@@ -82,10 +75,6 @@ websocketsApp seat finished conn = liftIO $ keepAlive conn communication
 keepAlive :: Connection -> IO c -> IO c
 keepAlive conn =
   withPingThread conn 30 (pure ())
-
--- HTMX Response Content
-messageContent :: Html ()
-messageContent = p_ "Hello from the server! This was loaded via HTMX."
 
 -- Application
 app :: Seats -> Application
@@ -124,7 +113,7 @@ hostGame :: Seats -> IO ()
 hostGame (Seats (Players oSeat xSeat) finished) = do
   oPlayer <- takeMVar oSeat
   xPlayer <- takeMVar xSeat
-  _ <- play (sendUpdate oPlayer xPlayer) $ getMove (playerMove oPlayer) (playerMove xPlayer)
+  _ <- play (sendUpdate oPlayer xPlayer) $ getMoveFromPlayer (playerMoveFromConnection oPlayer) (playerMoveFromConnection xPlayer)
   forever $ threadDelay 10000
 
 type GetMove f = GameInPlay -> f Move
@@ -142,9 +131,9 @@ boardLens SW = bottom . left
 boardLens S = bottom . center
 boardLens SE = bottom . right
 
-getMove :: PlayerMove f -> PlayerMove f -> GetMove f
-getMove oPlayer _ (GameInPlay O board) = oPlayer board
-getMove _ xPlayer (GameInPlay X board) = xPlayer board
+getMoveFromPlayer :: PlayerMove f -> PlayerMove f -> GetMove f
+getMoveFromPlayer oPlayer _ (GameInPlay O board) = oPlayer board
+getMoveFromPlayer _ xPlayer (GameInPlay X board) = xPlayer board
 
 emptyWonGrid :: Grid Bool
 emptyWonGrid = pure False
@@ -166,13 +155,13 @@ sendUpdate oPlayer xPlayer (Update board status) = case status of
                 then (Won ThisPlayer, wonGrid)
                 else (Won OtherPlayer, wonGrid)
               where
-                wonGrid = fmap getAny $ foldMap (fmap Any . lineGrids) winningLines
+                wonGrid = fmap getAny $ foldMap (fmap Any . gridForWinningLine) winningLines
             DrawnGame -> (Drawn, emptyWonGrid)
   where
     boardHtml :: Grid Bool -> Activity -> Html ()
-    boardHtml wonGrid activity = div_ [class_ "board", id_ "board"] $ sequence_ (square activity <$> wonGrid <*> moveGrid <*> board) *> div_ [class_ "status"] status
+    boardHtml wonGrid activity = div_ [class_ "board", id_ "board"] $ sequence_ (square activity <$> wonGrid <*> moveGrid <*> board) *> div_ [class_ "status"] statusMessage
       where
-        status = case activity of
+        statusMessage = case activity of
           Active ThisPlayer -> "your turn"
           Active OtherPlayer -> "their turn"
           Ended Drawn -> "draw"
@@ -207,8 +196,6 @@ square activity wonSquare move space = button_ attrs content
       Just player -> case player of
         O -> "O"
         X -> "X"
-
-data CellStatus
 
 data ThisOrOtherPlayer = ThisPlayer | OtherPlayer
 
@@ -256,43 +243,34 @@ postTurnStatus player board = case wonGame of
   Nothing -> if all marked board then FinishedStatus DrawnGame else Unfinished (switch player)
   where
     wonGame = foldMap (fmap singleton . winningLine) winningLines
-    winningLine line =
+    winningLine spaces =
       if all markedByThisPlayer spaces
-        then Just line
+        then Just spaces
         else Nothing
       where
-        spaces = winningLineMoves line
+
     markedByThisPlayer space = view (boardLens space) board == Just player
 
 switch :: Player -> Player
 switch O = X
 switch X = O
 
-winningLineMoves :: WinningLine -> [Move]
-winningLineMoves winningLine = case winningLine of
-  TopRow -> [NW, N, NE]
-  MiddleRow -> [W, C, E]
-  BottomRow -> [SW, S, SE]
-  LeftColumn -> [NW, W, SW]
-  CenterColumn -> [N, C, S]
-  RightColumn -> [NE, E, SE]
-  DiagonalNWSE -> [NW, C, SE]
-  DiagonalNESW -> [NE, C, SW]
-
 winningLines :: [WinningLine]
 winningLines =
-  [ TopRow,
-    MiddleRow,
-    BottomRow,
-    LeftColumn,
-    CenterColumn,
-    RightColumn,
-    DiagonalNWSE,
-    DiagonalNESW
+  [ [NW, N, NE],
+    [W, C, E],
+    [SW, S, SE],
+    [NW, W, SW],
+    [N, C, S],
+    [NE, E, SE],
+    [NW, C, SE],
+    [NE, C, SW]
   ]
 
-lineGrids :: WinningLine -> Grid Bool
-lineGrids = undefined
+gridForWinningLine :: WinningLine -> Grid Bool
+gridForWinningLine = foldr f emptyWonGrid
+  where
+    f move = set (boardLens move) True
 
 type Space = Maybe Player
 
@@ -331,28 +309,12 @@ instance (Semigroup a) => Semigroup (Grid a) where
 instance (Monoid a) => Monoid (Grid a) where
   mempty = pure mempty
 
-data WinningLine = TopRow | MiddleRow | BottomRow | LeftColumn | CenterColumn | RightColumn | DiagonalNWSE | DiagonalNESW
+type WinningLine = [Move]
 
 data Player = O | X deriving (Eq)
 
-data MoveObject = MoveObject {move :: Move} deriving (Generic)
+data MoveKey = MoveObject {moveKey :: Move} deriving (Generic)
 
-instance ToJSON MoveObject
+instance ToJSON MoveKey
 
-instance FromJSON MoveObject
-
--- t :: Lens' (Grid a) (Row a)
--- t f s = fmap g $ f $ top s
---  where
---    g a = s {top = a}
---
--- m :: Lens' (Grid a) (Row a)
--- m f s = fmap g $ f $ middle s
---  where
---    g a = s {middle = a}
---
--- b :: Lens' (Grid a) (Row a)
--- b f s = fmap g $ f $ bottom s
---  where
---    g a = s {bottom = a}
---
+instance FromJSON MoveKey

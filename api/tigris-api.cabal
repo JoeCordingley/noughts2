@@ -38,6 +38,7 @@ library
     , base >=4.7 && <5
     , basic-prelude
     , bytestring
+    , containers
     , dani-servant-lucid2
     , http-media
     , lens
@@ -67,6 +68,7 @@ executable tigris-api-exe
     , base >=4.7 && <5
     , basic-prelude
     , bytestring
+    , containers
     , dani-servant-lucid2
     , http-media
     , lens
@@ -98,6 +100,7 @@ test-suite tigris-api-test
     , base >=4.7 && <5
     , basic-prelude
     , bytestring
+    , containers
     , dani-servant-lucid2
     , http-media
     , lens

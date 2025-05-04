@@ -37,6 +37,7 @@ dependencies:
 - text-show
 - basic-prelude
 - aeson
+- containers
 
 ghc-options:
 - -Wall
