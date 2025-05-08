@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Api (runServer)
+import Tigris.Api (runServer)
 
 main :: IO ()
 main = runServer

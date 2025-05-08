@@ -8,7 +8,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -Wno-type-defaults #-}
 
-module Api (runServer, Move (..), MoveKey (..)) where
+module Noughts.Api (runServer) where
 
 import BasicPrelude
 import Control.Concurrent (MVar, forkIO, newEmptyMVar, putMVar, readMVar, takeMVar)
@@ -19,12 +19,12 @@ import Data.Semigroup
 import qualified Data.Text.Lazy as TL
 import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
-import Game
 import Lucid (term)
 import Lucid.Base (Attributes, Html, renderText)
 import Lucid.Html5
 import Network.Wai.Handler.Warp (run)
 import Network.WebSockets.Connection (Connection, receiveData, sendTextData, withPingThread)
+import Noughts.Game
 import Servant
 import Servant.API.WebSocket (WebSocket)
 

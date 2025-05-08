@@ -3,7 +3,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
-module Game (WinningLine, GameInPlay (..), Game (..), GetMove, Player (..), Board, Space, boardLens, Result (..), Grid (..), Row (..), Move (..), playUnfixed, fixPlay, FinishedGame (..)) where
+module Noughts.Game (WinningLine, GameInPlay (..), Game (..), GetMove, Player (..), Board, Space, boardLens, Result (..), Grid (..), Row (..), Move (..), playUnfixed, fixPlay, FinishedGame (..)) where
 
 import BasicPrelude
 import Control.Lens
