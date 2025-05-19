@@ -1,0 +1,11 @@
+---
+import Htmx from '@layouts/Htmx.astro'
+---
+<Htmx title="Tigers and Pots" >
+    <div>
+      <h1>Tigers and Pots</h1>
+    <div >
+      <button hx-trigger="click" hx-target="body" hx-post="/api/tigris/create" >Start Game</button>
+      </div>
+    </div>
+</Htmx>

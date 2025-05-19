@@ -1,0 +1,9 @@
+---
+import Htmx from '@layouts/Htmx.astro';
+export const prerender = false;
+const { gameId } = Astro.params;
+---
+<Htmx title="Tigers and Pots" >
+    <h1>{gameId}</h1>
+    <div hx-get=`/api/tigris/${gameId}` hx-trigger="load" />
+</Htmx>
