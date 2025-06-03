@@ -1,6 +1,6 @@
 cabal-version: 2.2
 
--- This file has been generated from package.yaml by hpack version 0.37.0.
+-- This file has been generated from package.yaml by hpack version 0.38.0.
 --
 -- see: https://github.com/sol/hpack
 
@@ -25,6 +25,7 @@ source-repository head
 
 library
   exposed-modules:
+      Lib
       Noughts.Api
       Noughts.Game
       Tigris.Api
@@ -39,8 +40,10 @@ library
       aeson
     , base >=4.7 && <5
     , basic-prelude
+    , bimap
     , bytestring
     , containers
+    , cookie
     , dani-servant-lucid2
     , http-media
     , lens
@@ -49,6 +52,7 @@ library
     , servant
     , servant-server
     , servant-websockets
+    , string-random
     , text
     , text-show
     , wai
@@ -69,8 +73,10 @@ executable tigris-api-exe
       aeson
     , base >=4.7 && <5
     , basic-prelude
+    , bimap
     , bytestring
     , containers
+    , cookie
     , dani-servant-lucid2
     , http-media
     , lens
@@ -79,6 +85,7 @@ executable tigris-api-exe
     , servant
     , servant-server
     , servant-websockets
+    , string-random
     , text
     , text-show
     , tigris-api
@@ -101,8 +108,10 @@ test-suite tigris-api-test
       aeson
     , base >=4.7 && <5
     , basic-prelude
+    , bimap
     , bytestring
     , containers
+    , cookie
     , dani-servant-lucid2
     , http-media
     , lens
@@ -111,6 +120,7 @@ test-suite tigris-api-test
     , servant
     , servant-server
     , servant-websockets
+    , string-random
     , text
     , text-show
     , tigris-api

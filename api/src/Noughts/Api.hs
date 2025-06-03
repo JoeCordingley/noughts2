@@ -179,13 +179,19 @@ type SendMessage f = Update -> f ()
 
 play :: (Monad f) => SendMessage f -> GetMove f -> f FinishedGame
 play notify getMove = do
-  result <- fixPlay (doAndRecurse notifyPlaying . playUnfixed getMove)
+  result <- fixPlay (recursing notifyPlaying . playUnfixed getMove)
   notifyResult result
   return result
   where
     notifyPlaying (GameInPlay player board) = notify . Update board $ Unfinished player
-    doAndRecurse f recurse a = f a *> recurse a
     notifyResult (FinishedGame board result) = notify . Update board $ FinishedStatus result
+
+
+recursing :: Monad f => (a -> f ()) -> (a -> f b) -> a -> f b
+recursing f recurse = (returning f) >=> recurse
+
+returning :: Applicative f => (a -> f ()) -> a -> f a
+returning f a = a <$ f a 
 
 gridForWinningLine :: WinningLine -> Grid Bool
 gridForWinningLine = foldr f emptyWonGrid

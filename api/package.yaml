@@ -38,6 +38,9 @@ dependencies:
 - basic-prelude
 - aeson
 - containers
+- string-random
+- cookie
+- bimap
 
 ghc-options:
 - -Wall
