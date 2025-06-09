@@ -1,6 +1,8 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 
-module Lib (recursing) where
+module Lib (recursing, keepAlive) where
+
+import Network.WebSockets.Connection (Connection, withPingThread)
 
 import BasicPrelude
 
@@ -9,3 +11,7 @@ recursing f recurse = (returning f) >=> recurse
 
 returning :: Applicative f => (a -> f ()) -> a -> f a
 returning f a = a <$ f a 
+
+keepAlive :: Connection -> IO c -> IO c
+keepAlive conn =
+  withPingThread conn 30 (pure ())

@@ -41,6 +41,8 @@ dependencies:
 - string-random
 - cookie
 - bimap
+- stm
+- async
 
 ghc-options:
 - -Wall

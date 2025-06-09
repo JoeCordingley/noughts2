@@ -23,10 +23,11 @@ import Lucid (term)
 import Lucid.Base (Attributes, Html, renderText)
 import Lucid.Html5
 import Network.Wai.Handler.Warp (run)
-import Network.WebSockets.Connection (Connection, receiveData, sendTextData, withPingThread)
+import Network.WebSockets.Connection (Connection, receiveData, sendTextData)
 import Noughts.Game
 import Servant
 import Servant.API.WebSocket (WebSocket)
+import Lib (keepAlive)
 
 wsSend :: Attributes
 wsSend = term "ws-send" mempty
@@ -61,10 +62,6 @@ websocketsAppFromSeat seat finishedVar conn = liftIO $ keepAlive conn communicat
       sendTextData conn $ renderText $ p_ [id_ "board"] "Waiting for opponent..."
       putMVar seat conn
       readMVar finishedVar
-
-keepAlive :: Connection -> IO c -> IO c
-keepAlive conn =
-  withPingThread conn 30 (pure ())
 
 -- Application
 app :: MVars -> Application
@@ -186,12 +183,11 @@ play notify getMove = do
     notifyPlaying (GameInPlay player board) = notify . Update board $ Unfinished player
     notifyResult (FinishedGame board result) = notify . Update board $ FinishedStatus result
 
-
-recursing :: Monad f => (a -> f ()) -> (a -> f b) -> a -> f b
+recursing :: (Monad f) => (a -> f ()) -> (a -> f b) -> a -> f b
 recursing f recurse = (returning f) >=> recurse
 
-returning :: Applicative f => (a -> f ()) -> a -> f a
-returning f a = a <$ f a 
+returning :: (Applicative f) => (a -> f ()) -> a -> f a
+returning f a = a <$ f a
 
 gridForWinningLine :: WinningLine -> Grid Bool
 gridForWinningLine = foldr f emptyWonGrid

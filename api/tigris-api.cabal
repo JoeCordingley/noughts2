@@ -38,6 +38,7 @@ library
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       aeson
+    , async
     , base >=4.7 && <5
     , basic-prelude
     , bimap
@@ -52,6 +53,7 @@ library
     , servant
     , servant-server
     , servant-websockets
+    , stm
     , string-random
     , text
     , text-show
@@ -71,6 +73,7 @@ executable tigris-api-exe
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
+    , async
     , base >=4.7 && <5
     , basic-prelude
     , bimap
@@ -85,6 +88,7 @@ executable tigris-api-exe
     , servant
     , servant-server
     , servant-websockets
+    , stm
     , string-random
     , text
     , text-show
@@ -106,6 +110,7 @@ test-suite tigris-api-test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
+    , async
     , base >=4.7 && <5
     , basic-prelude
     , bimap
@@ -120,6 +125,7 @@ test-suite tigris-api-test
     , servant
     , servant-server
     , servant-websockets
+    , stm
     , string-random
     , text
     , text-show
