@@ -1,16 +1,15 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 
-module Lib (recursing, keepAlive) where
-
-import Network.WebSockets.Connection (Connection, withPingThread)
+module Lib (recursing, keepAlive, returning) where
 
 import BasicPrelude
+import Network.WebSockets.Connection (Connection, withPingThread)
 
-recursing :: Monad f => (a -> f ()) -> (a -> f b) -> a -> f b
+recursing :: (Monad f) => (a -> f ()) -> (a -> f b) -> a -> f b
 recursing f recurse = (returning f) >=> recurse
 
-returning :: Applicative f => (a -> f ()) -> a -> f a
-returning f a = a <$ f a 
+returning :: (Applicative f) => (a -> f ()) -> a -> f a
+returning f a = a <$ f a
 
 keepAlive :: Connection -> IO c -> IO c
 keepAlive conn =

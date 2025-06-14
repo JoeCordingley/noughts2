@@ -21,7 +21,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
-import Lib (recursing)
+import Lib (recursing, returning)
 import Lucid.Base (Html)
 import Lucid.Html5
 import Network.Wai.Handler.Warp (run)
@@ -55,8 +55,8 @@ type NotifyPlayer = PlayerMap -> IO ()
 
 data Game = Game
   { latestState :: TVar PlayerMap,
-    notifyPlayers :: TVar [TQueue PlayerMap], -- One queue per connection
-    players :: TVar [TQueue SetupMessage], -- Each player's input queue
+    playerOutputs :: TVar [PlayerMap -> STM ()],
+    playerInputs :: TVar [(Player, STM Dynasty)],
     waitForFinish :: IO ()
   }
 
@@ -100,7 +100,7 @@ newGame :: IO Game
 newGame = atomically $ do
   notify <- newTVar []
   ps <- newTVar []
-  return Game {notifyPlayers = notify, players = ps, waitForFinish = forever $ threadDelay 10000}
+  return Game {playerOutputs = notify, playerInputs = ps, waitForFinish = forever $ threadDelay 10000}
 
 -- Game Joining
 
@@ -119,8 +119,8 @@ addPlayer conn game player = do
   inputQueue <- newTQueueIO
   -- Atomically register the player and queue
   atomically $ do
-    modifyTVar' (notifyPlayers game) (outputQueue :)
-    modifyTVar' (players game) (inputQueue :)
+    modifyTVar' (playerOutputs game) (writeTQueue outputQueue :)
+    modifyTVar' (playerInputs game) ((player, readTQueue inputQueue) :)
     state <- readTVar (latestState game)
     writeTQueue outputQueue state
 
@@ -136,11 +136,11 @@ sendLoop queue conn = forever $ do
   sendTextData conn (tshow state)
 
 -- Dummy read loop (simulate receiving inputs)
-readLoop :: Connection -> TQueue SetupMessage -> Player -> IO ()
+readLoop :: Connection -> TQueue Dynasty -> Player -> IO ()
 readLoop conn queue player = forever $ do
   msg <- receiveData conn
   case decode msg of
-    Just dynasty -> atomically $ writeTQueue queue $ TakePosition player dynasty
+    Just dynasty -> atomically $ writeTQueue queue $ dynasty
     Nothing -> return () -- Handle decoding failure
 
 -- decodeSetupMessage :: Player -> BL.ByteString -> Maybe SetupMessage
@@ -152,7 +152,7 @@ readLoop conn queue player = forever $ do
 -- broadcastUpdate :: Game -> PlayerMap -> IO ()
 -- broadcastUpdate game newState = atomically $ do
 --   writeTVar (latestState game) newState
---   notifiers <- readTVar (notifyPlayers game)
+--   notifiers <- readTVar (playerOutputs game)
 --   mapM_ (`writeTQueue` newState) notifiers
 
 -- joinGame :: TVar GameMap -> GameId -> Maybe Text -> Server WebSocket
@@ -175,28 +175,30 @@ readLoop conn queue player = forever $ do
 
 hostGame :: Game -> IO ()
 hostGame game = do
-  playerMap <- fix (recursing (notifySetup $ notifyPlayers game) . setupGame (receiveMsg $ players game)) Bimap.empty
+  playerMap <- setupGame receiveMsg notifyPlayers Bimap.empty
   playGame playerMap
-
-receiveMsg :: TVar [TQueue SetupMessage] -> IO SetupMessage
-receiveMsg players = atomically $ do
-  ps <- readTVar players
-  foldr orElse retry (map readTQueue ps)
-
-notifySetup :: TVar [TQueue PlayerMap] -> PlayerMap -> IO ()
-notifySetup playersVar playerMap = atomically $ do
-  players <- readTVar playersVar
-  traverse_ (\q -> writeTQueue q playerMap) players
-
-setupGame :: (Monad m) => m SetupMessage -> (PlayerMap -> m PlayerMap) -> PlayerMap -> m PlayerMap
-setupGame receive recurse playerMap = do
-  message <- receive
-  case message of
-    TakePosition player position -> recurse $ takePosition player position playerMap
   where
-    takePosition player position pm
-      | Bimap.notMember position pm = Bimap.insert position player pm
-      | otherwise = pm
+    receiveMsg = (readTVar $ playerInputs game) >>= firstPlayerMessage
+    notifyPlayers = notifySetup (readTVar $ playerOutputs game)
+
+firstPlayerMessage :: [(Player, STM Dynasty)] -> STM SetupMessage
+firstPlayerMessage = foldr orElse retry . map (uncurry $ fmap . TakePosition)
+
+notifySetup :: STM [PlayerMap -> STM ()] -> PlayerMap -> STM ()
+notifySetup playersVar playerMap = playersVar >>= traverse_ ($ playerMap)
+
+setupGame :: STM SetupMessage -> (PlayerMap -> STM ()) -> PlayerMap -> IO PlayerMap
+setupGame receive notify playerMap = do
+  receive' >>= setupGame'
+  where
+    receive' = atomically $ do
+      message <- receive
+      case message of
+        TakePosition player position ->
+          returning notify $ takePosition playerMap
+          where
+            takePosition = if Bimap.notMember position playerMap then Bimap.insert position player else id
+    setupGame' = setupGame receive notify
 
 playGame :: PlayerMap -> IO ()
 playGame = undefined
