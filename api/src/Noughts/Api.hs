@@ -19,6 +19,7 @@ import Data.Semigroup
 import qualified Data.Text.Lazy as TL
 import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
+import Lib (keepAlive, sendHtml)
 import Lucid (term)
 import Lucid.Base (Attributes, Html, renderText)
 import Lucid.Html5
@@ -27,7 +28,6 @@ import Network.WebSockets.Connection (Connection, receiveData, sendTextData)
 import Noughts.Game
 import Servant
 import Servant.API.WebSocket (WebSocket)
-import Lib (keepAlive)
 
 wsSend :: Attributes
 wsSend = term "ws-send" mempty
@@ -138,9 +138,6 @@ sendUpdateToClients oConn xConn (Update board status) = case status of
           Ended Drawn -> "draw"
           Ended (Won ThisPlayer) -> "you won!"
           Ended (Won OtherPlayer) -> "they won :("
-
-sendHtml :: Connection -> Html () -> IO ()
-sendHtml conn html = sendTextData conn $ renderText html
 
 data Update = Update Board GameStatus
 

@@ -21,7 +21,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
-import Lib (recursing, returning)
+import Lib (recursing, returning, sendHtml)
 import Lucid.Base (Html)
 import Lucid.Html5
 import Network.Wai.Handler.Warp (run)
@@ -100,7 +100,8 @@ newGame :: IO Game
 newGame = atomically $ do
   notify <- newTVar []
   ps <- newTVar []
-  return Game {playerOutputs = notify, playerInputs = ps, waitForFinish = forever $ threadDelay 10000}
+  latestState <- newTVar Bimap.empty
+  return Game {latestState = latestState, playerOutputs = notify, playerInputs = ps, waitForFinish = forever $ threadDelay 10000}
 
 -- Game Joining
 
@@ -125,15 +126,18 @@ addPlayer conn game player = do
     writeTQueue outputQueue state
 
   -- Start sender and receiver threads
-  withAsync (sendLoop outputQueue conn) $ \sender ->
+  withAsync (sendLoop outputQueue conn player) $ \sender ->
     withAsync (readLoop conn inputQueue player) $ \reader ->
       waitForFinish game *> cancel sender *> cancel reader
 
 -- Send updates from the queue to the connection
-sendLoop :: TQueue PlayerMap -> Connection -> IO ()
-sendLoop queue conn = forever $ do
+sendLoop :: TQueue PlayerMap -> Connection -> Player -> IO ()
+sendLoop queue conn player = forever $ do
   state <- atomically $ readTQueue queue
-  sendTextData conn (tshow state)
+  sendHtml conn $ chooseDynasty state player
+
+chooseDynasty :: PlayerMap -> Player -> Html ()
+chooseDynasty = undefined
 
 -- Dummy read loop (simulate receiving inputs)
 readLoop :: Connection -> TQueue Dynasty -> Player -> IO ()
@@ -142,34 +146,6 @@ readLoop conn queue player = forever $ do
   case decode msg of
     Just dynasty -> atomically $ writeTQueue queue $ dynasty
     Nothing -> return () -- Handle decoding failure
-
--- decodeSetupMessage :: Player -> BL.ByteString -> Maybe SetupMessage
--- decodeSetupMessage player =
-
--- Normally you decode and write to a shared queue for the game
-
--- Update all clients
--- broadcastUpdate :: Game -> PlayerMap -> IO ()
--- broadcastUpdate game newState = atomically $ do
---   writeTVar (latestState game) newState
---   notifiers <- readTVar (playerOutputs game)
---   mapM_ (`writeTQueue` newState) notifiers
-
--- joinGame :: TVar GameMap -> GameId -> Maybe Text -> Server WebSocket
--- joinGame games gameId maybeCookies conn = do
---  gameList <- liftIO $ readTVarIO games
---  case Map.lookup gameId gameList of
---    Just game -> liftIO $ addPlayer conn game
---    Nothing -> throwError err404
---  where
---    addPlayer conn game = do
---      player <- newPlayer
---      queue <- atomically $ do
---        q <- newTQueue
---        modifyTVar' (players game) (readTQueue q :)
---        return q
---      withAsync (readFromWebSocket (decodeSetupMessage player) conn queue) $ \reader ->
---        waitForFinish game *> cancel reader
 
 -- Game Logic Core
 
@@ -204,13 +180,6 @@ playGame :: PlayerMap -> IO ()
 playGame = undefined
 
 -- WebSocket Helpers
-
-readFromWebSocket :: (BL.ByteString -> Maybe a) -> Connection -> TQueue a -> IO ()
-readFromWebSocket decoder conn queue = forever $ do
-  msg <- receiveData conn
-  traverse_ (atomically . writeTQueue queue) (decoder msg)
-
--- Cookie Helpers
 
 gameCreator :: Text
 gameCreator = "gameCreator"
