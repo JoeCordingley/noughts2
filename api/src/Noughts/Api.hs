@@ -19,7 +19,7 @@ import Data.Semigroup
 import qualified Data.Text.Lazy as TL
 import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
-import Lib (keepAlive, sendHtml)
+import Lib (encodeToText, keepAlive, sendHtml)
 import Lucid (term)
 import Lucid.Base (Attributes, Html, renderText)
 import Lucid.Html5
@@ -165,9 +165,6 @@ square activity wonSquare move space = button_ attrs content
 data ThisOrOtherPlayer = ThisPlayer | OtherPlayer
 
 data Activity = Active ThisOrOtherPlayer | Ended ClientResult
-
-encodeToText :: (ToJSON a) => a -> Text
-encodeToText = TL.toStrict . encodeToLazyText
 
 type SendMessage f = Update -> f ()
 

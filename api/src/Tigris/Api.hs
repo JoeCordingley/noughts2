@@ -21,7 +21,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
-import Lib (recursing, returning, sendHtml)
+import Lib (encodeToText, keepAlive, recursing, returning, sendHtml)
+import Lucid (term, toHtml)
 import Lucid.Base (Html)
 import Lucid.Html5
 import Network.Wai.Handler.Warp (run)
@@ -38,11 +39,15 @@ type CreateGameResponse = Headers '[Header "HX-Redirect" Text, Header "Set-Cooki
 
 data SetupMessage = TakePosition Player Dynasty deriving (Generic, Show)
 
-newtype Player = Player Text deriving (Eq, Ord, Show)
+data Role = Host | Guest deriving (Eq, Ord, Show)
+
+data Player = Player Role Text deriving (Eq, Ord, Show)
 
 data Dynasty = Archer | Bull | Pot | Lion deriving (Eq, Ord, Generic, Show)
 
 instance FromJSON Dynasty
+
+instance ToJSON Dynasty
 
 data GameId = GameId {gameId :: Text} deriving (Eq, Show, Ord)
 
@@ -76,6 +81,7 @@ type API =
 runServer :: IO ()
 runServer = do
   games <- newTVarIO Map.empty
+  putStrLn "Running on http://localhost:8080/"
   run 8080 (serve (Proxy :: Proxy API) (server games))
 
 server :: TVar GameMap -> Server API
@@ -90,7 +96,7 @@ createGame games = do
 
 createNewGame :: TVar GameMap -> IO GameId
 createNewGame games = do
-  generatedId <- generateId
+  generatedId <- generateGameId
   game <- newGame
   atomically $ modifyTVar games $ Map.insert generatedId game
   forkIO $ hostGame game
@@ -107,9 +113,14 @@ newGame = atomically $ do
 
 joinGame :: TVar GameMap -> GameId -> Maybe Text -> Server WebSocket
 joinGame games gameId maybeCookies conn = do
+  liftIO $ putStrLn "connected"
   gameList <- liftIO $ readTVarIO games
   case Map.lookup gameId gameList of
-    Just game -> liftIO $ newPlayer >>= addPlayer conn game
+    Just game -> liftIO $ do
+      player <- case maybeCookies >>= gameCreatorCookie of
+        Just creatorId | creatorId == gameId -> newHostPlayer
+        _ -> newGuestPlayer
+      keepAlive conn $ addPlayer conn game player
     Nothing -> throwError err404
 
 -- Add player and setup notification system
@@ -119,11 +130,13 @@ addPlayer conn game player = do
   outputQueue <- newTQueueIO
   inputQueue <- newTQueueIO
   -- Atomically register the player and queue
-  atomically $ do
+  state <- atomically $ do
     modifyTVar' (playerOutputs game) (writeTQueue outputQueue :)
     modifyTVar' (playerInputs game) ((player, readTQueue inputQueue) :)
     state <- readTVar (latestState game)
     writeTQueue outputQueue state
+    return state
+  putStrLn $ "state: " <> tshow state
 
   -- Start sender and receiver threads
   withAsync (sendLoop outputQueue conn player) $ \sender ->
@@ -137,44 +150,64 @@ sendLoop queue conn player = forever $ do
   sendHtml conn $ chooseDynasty state player
 
 chooseDynasty :: PlayerMap -> Player -> Html ()
-chooseDynasty = undefined
+chooseDynasty playerMap player =
+  div_ [id_ "board"] $ do
+    h2_ "Choose Your Dynasty"
+    div_ [class_ "dynasty-buttons"]
+      $ forM_ [Archer, Bull, Pot, Lion]
+      $ \dynasty ->
+        let isTaken = Bimap.member dynasty playerMap
+            isMine = Bimap.lookup dynasty playerMap == Just player
+            color
+              | isMine = "green"
+              | isTaken = "gray"
+              | otherwise = "blue"
+            jsonVal = encodeToText $ DynastyChoice dynasty
+            attrs =
+              [ style_ $ "background-color: " <> color <> "; margin: 0.5em; padding: 1em",
+                term "hx-vals" jsonVal,
+                term "ws-send" mempty
+              ]
+                ++ if isTaken && not isMine then [disabled_ "true"] else []
+         in button_ attrs (toHtml $ show dynasty)
 
 -- Dummy read loop (simulate receiving inputs)
 readLoop :: Connection -> TQueue Dynasty -> Player -> IO ()
 readLoop conn queue player = forever $ do
   msg <- receiveData conn
   case decode msg of
-    Just dynasty -> atomically $ writeTQueue queue $ dynasty
-    Nothing -> return () -- Handle decoding failure
+    Just (DynastyChoice dynasty) -> atomically $ writeTQueue queue $ dynasty
+    Nothing -> do
+      return () -- Handle decoding failure
 
 -- Game Logic Core
 
 hostGame :: Game -> IO ()
 hostGame game = do
-  playerMap <- setupGame receiveMsg notifyPlayers Bimap.empty
+  playerMap <- fixAtomically notifyPlayers (setupGame receiveMsg) startingState
   playGame playerMap
   where
     receiveMsg = (readTVar $ playerInputs game) >>= firstPlayerMessage
-    notifyPlayers = notifySetup (readTVar $ playerOutputs game)
-
-firstPlayerMessage :: [(Player, STM Dynasty)] -> STM SetupMessage
-firstPlayerMessage = foldr orElse retry . map (uncurry $ fmap . TakePosition)
+    firstPlayerMessage = foldr orElse retry . map (uncurry $ fmap . TakePosition)
+    notifyPlayers playerMap = notifySetup (readTVar $ playerOutputs game) playerMap *> writeTVar (latestState game) playerMap
+    startingState = Bimap.empty
 
 notifySetup :: STM [PlayerMap -> STM ()] -> PlayerMap -> STM ()
 notifySetup playersVar playerMap = playersVar >>= traverse_ ($ playerMap)
 
-setupGame :: STM SetupMessage -> (PlayerMap -> STM ()) -> PlayerMap -> IO PlayerMap
-setupGame receive notify playerMap = do
-  receive' >>= setupGame'
+fixAtomically :: (a -> STM b) -> ((a -> STM a) -> a -> STM a) -> a -> IO a
+fixAtomically notify f = atomically . (returning notify) >=> loop
   where
-    receive' = atomically $ do
-      message <- receive
-      case message of
-        TakePosition player position ->
-          returning notify $ takePosition playerMap
-          where
-            takePosition = if Bimap.notMember position playerMap then Bimap.insert position player else id
-    setupGame' = setupGame receive notify
+    loop = atomically . f (returning notify) >=> loop
+
+setupGame :: (Monad m) => m SetupMessage -> (PlayerMap -> m PlayerMap) -> PlayerMap -> m PlayerMap
+setupGame receive recurse playerMap = do
+  message <- receive
+  case message of
+    TakePosition player position ->
+      recurse $ takePosition playerMap
+      where
+        takePosition = if Bimap.notMember position playerMap then Bimap.insert position player else id
 
 playGame :: PlayerMap -> IO ()
 playGame = undefined
@@ -194,8 +227,20 @@ gameCreatorCookie text = do
 
 -- ID and Player Generation
 
-generateId :: IO GameId
-generateId = GameId <$> stringRandomIO "[a-zA-Z0-9]{5}"
+generateId :: IO Text
+generateId = stringRandomIO "[a-zA-Z0-9]{5}"
 
-newPlayer :: IO Player
-newPlayer = Player <$> stringRandomIO "[a-zA-Z0-9]{5}"
+generateGameId :: IO GameId
+generateGameId = GameId <$> generateId
+
+newGuestPlayer :: IO Player
+newGuestPlayer = Player Guest <$> generateId
+
+newHostPlayer :: IO Player
+newHostPlayer = Player Host <$> generateId
+
+data DynastyChoice = DynastyChoice {dynasty :: Dynasty} deriving (Generic)
+
+instance ToJSON DynastyChoice
+
+instance FromJSON DynastyChoice
