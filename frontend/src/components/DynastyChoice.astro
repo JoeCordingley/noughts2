@@ -1,0 +1,32 @@
+---
+const values = [ 
+	{dynasty: "Archer", player: "Alice", taken : true, mine : false},
+	{dynasty: "Bull", player: "Bob", taken : true, mine : false},
+	{dynasty: "Pot", player: "Charlie", taken : true, mine : true},
+	{dynasty: "Lion", taken : false, mine : false}
+]
+---
+<style>
+button.dynasty { 
+	margin: 0.5em;
+	padding: 1em;
+	background-color: green;
+}
+button.taken {
+	background-color: gray;
+}
+button.mine {
+	background-color: blue;
+}
+</style>
+
+<div id="board">
+	<h2>Choose Your Dynasty</h2>
+	<div class="dynasty-buttons">
+		{values.map(({dynasty, taken, mine, player}) => 
+		<button class:list={['dynasty', {mine: mine}, {taken: taken}]}>
+			{dynasty} : {player}
+				</button>
+		)}
+	</div>
+</div>

@@ -1,5 +1,6 @@
 ---
 import Htmx from '@layouts/Htmx.astro'
+import DynastyChoice from '@components/DynastyChoice.astro'
 ---
 <Htmx title="Tigers and Pots" >
     <div>
@@ -8,4 +9,5 @@ import Htmx from '@layouts/Htmx.astro'
       <button hx-trigger="click" hx-target="body" hx-post="/api/tigris/create" >Start Game</button>
       </div>
     </div>
+<DynastyChoice/>
 </Htmx>

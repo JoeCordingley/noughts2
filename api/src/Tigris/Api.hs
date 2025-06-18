@@ -136,7 +136,6 @@ addPlayer conn game player = do
     state <- readTVar (latestState game)
     writeTQueue outputQueue state
     return state
-  putStrLn $ "state: " <> tshow state
 
   -- Start sender and receiver threads
   withAsync (sendLoop outputQueue conn player) $ \sender ->
@@ -152,6 +151,9 @@ sendLoop queue conn player = forever $ do
 chooseDynasty :: PlayerMap -> Player -> Html ()
 chooseDynasty playerMap player =
   div_ [id_ "board"] $ do
+    div_ [] $ case player of
+      Player Host _ -> "host"
+      Player Guest _ -> "guest"
     h2_ "Choose Your Dynasty"
     div_ [class_ "dynasty-buttons"]
       $ forM_ [Archer, Bull, Pot, Lion]
