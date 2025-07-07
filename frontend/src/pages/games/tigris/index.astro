@@ -2,12 +2,19 @@
 import Htmx from '@layouts/Htmx.astro'
 import DynastyChoice from '@components/DynastyChoice.astro'
 ---
-<Htmx title="Tigers and Pots" >
-    <div>
-      <h1>Tigers and Pots</h1>
-    <div >
-      <button hx-trigger="click" hx-target="body" hx-post="/api/tigris/create" >Start Game</button>
-      </div>
-    </div>
-<DynastyChoice/>
+<Htmx title="Tigers and Pots">
+  <div>
+    <h1>Tigers and Pots</h1>
+
+    <!-- Simple form -->
+    <form
+      hx-post="/api/tigris/create"
+      hx-target="body"
+    >
+      <label for="player-name">Your name:</label>
+      <input id="player-name" name="name" type="text" placeholder="e.g. Alice" required />
+
+      <button type="submit">Start Game</button>
+    </form>
+  </div>
 </Htmx>

@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
@@ -11,6 +12,7 @@ import BasicPrelude
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Async (cancel, withAsync)
 import Control.Concurrent.STM
+import Control.Monad.Error.Class (MonadError)
 import Data.Aeson (FromJSON, ToJSON, decode)
 import Data.Bimap (Bimap)
 import qualified Data.Bimap as Bimap
@@ -34,8 +36,6 @@ import Text.StringRandom (stringRandomIO)
 import Web.Cookie (parseCookiesText)
 
 -- Types
-
-type CreateGameResponse = Headers '[Header "HX-Redirect" Text, Header "Set-Cookie" Text] NoContent
 
 data SetupMessage = TakePosition Player Dynasty deriving (Generic, Show)
 
@@ -69,12 +69,44 @@ type GameMap = Map.Map GameId Game
 
 -- Servant API
 
+type CreateGameResponse = Headers '[Header "HX-Redirect" Text, Header "Set-Cookie" Text, Header "Set-Cookie" Text] NoContent
+
+type GameResponse = Html ()
+
+type JoinGameResponse = Headers '[Header "Set-Cookie" Text] (Html ())
+
 type API =
   "api"
     :> "tigris"
-    :> ( "create" :> Post '[JSON] CreateGameResponse
-           :<|> Capture "gameId" GameId :> Header "Cookie" Text :> WebSocket
+    :> ( "create" :> ReqBody '[FormUrlEncoded] [(Text, Text)] :> Post '[JSON] CreateGameResponse
+           :<|> Capture "gameId" GameId
+             :> ( Header "Cookie" Text :> Get '[HTML] GameResponse
+                    :<|> "join" :> ReqBody '[FormUrlEncoded] [(Text, Text)] :> Post '[HTML] JoinGameResponse
+                    :<|> "play" :> Header "Cookie" Text :> WebSocket
+                )
        )
+
+createGame :: TVar GameMap -> [(Text, Text)] -> Handler CreateGameResponse
+createGame games formData = case lookup "name" formData of
+  Just name -> do
+    liftIO $ putStrLn $ "Creating game for player: " <> name
+    GameId newId <- liftIO $ createNewGame games
+    return $ addHeader ("/games/tigris/" <> newId) $ addHeader (cookie "name" name) $ addHeader (cookie gameCreator newId) NoContent
+  Nothing -> throwError err400
+
+cookie :: Text -> Text -> Text
+cookie key value = key <> "=" <> value
+
+playGameHandler :: TVar GameMap -> GameId -> Maybe Text -> Server WebSocket
+playGameHandler games gameId maybeCookies conn = withGame games gameId $ liftIO . connectGame gameId maybeCookies conn
+
+connectGame :: GameId -> Maybe Text -> Connection -> Game -> IO ()
+connectGame gameId maybeCookies conn game = do
+  putStrLn "connected"
+  player <- case maybeCookies >>= gameCreatorCookie of
+    Just creatorId | creatorId == gameId -> newHostPlayer
+    _ -> newGuestPlayer
+  keepAlive conn $ addPlayer conn game player
 
 -- Server Setup
 
@@ -85,14 +117,41 @@ runServer = do
   run 8080 (serve (Proxy :: Proxy API) (server games))
 
 server :: TVar GameMap -> Server API
-server games = createGame games :<|> joinGame games
+server games = createGame games :<|> gameEndpoints
+  where
+    gameEndpoints id = gameHandler games id :<|> joinGame games id :<|> playGameHandler games id
+
+gameHandler :: TVar GameMap -> GameId -> Maybe Text -> Handler GameResponse
+gameHandler games id maybeCookies = withGame games id f
+  where
+    f game = return $ case maybeCookies >>= nameCookie of
+      Just name -> websocketHtml id
+      Nothing ->
+        form_ [term "hx-post" ("/api/tigris/" <> gameId id <> "/join")] $ do
+          input_ [id_ "name", name_ "name", type_ "text"]
+          button_ [type_ "submit"] "Join"
+
+websocketHtml :: GameId -> Html ()
+websocketHtml id = div_ [id_ "game", term "hx-ext" "ws", term "ws-connect" ("/api/tigris/" <> gameId id <> "/play")] $ div_ [id_ "board"] $ return ()
+
+joinGame :: TVar GameMap -> GameId -> [(Text, Text)] -> Handler JoinGameResponse
+joinGame games id formData = withGame games id $ const $ case lookup "name" formData of
+  Just name -> return $ addHeader (cookie "name" name) (websocketHtml id)
+  Nothing -> throwError err400
+
+withGame ::
+  (MonadIO f, MonadError ServerError f) =>
+  TVar GameMap ->
+  GameId ->
+  (Game -> f a) ->
+  f a
+withGame gamesVar gameId action = do
+  gameMap <- liftIO $ readTVarIO gamesVar
+  case Map.lookup gameId gameMap of
+    Just game -> action game
+    Nothing -> throwError err404
 
 -- Game Creation
-
-createGame :: TVar GameMap -> Handler CreateGameResponse
-createGame games = do
-  GameId newId <- liftIO $ createNewGame games
-  return $ addHeader ("/games/tigris/" <> newId) $ addHeader (cookie gameCreator newId) NoContent
 
 createNewGame :: TVar GameMap -> IO GameId
 createNewGame games = do
@@ -110,18 +169,6 @@ newGame = atomically $ do
   return Game {latestState = latestState, playerOutputs = notify, playerInputs = ps, waitForFinish = forever $ threadDelay 10000}
 
 -- Game Joining
-
-joinGame :: TVar GameMap -> GameId -> Maybe Text -> Server WebSocket
-joinGame games gameId maybeCookies conn = do
-  liftIO $ putStrLn "connected"
-  gameList <- liftIO $ readTVarIO games
-  case Map.lookup gameId gameList of
-    Just game -> liftIO $ do
-      player <- case maybeCookies >>= gameCreatorCookie of
-        Just creatorId | creatorId == gameId -> newHostPlayer
-        _ -> newGuestPlayer
-      keepAlive conn $ addPlayer conn game player
-    Nothing -> throwError err404
 
 -- Add player and setup notification system
 addPlayer :: Connection -> Game -> Player -> IO ()
@@ -151,9 +198,6 @@ sendLoop queue conn player = forever $ do
 chooseDynasty :: PlayerMap -> Player -> Html ()
 chooseDynasty playerMap player =
   div_ [id_ "board"] $ do
-    div_ [] $ case player of
-      Player Host _ -> "host"
-      Player Guest _ -> "guest"
     h2_ "Choose Your Dynasty"
     div_ [class_ "dynasty-buttons"]
       $ forM_ [Archer, Bull, Pot, Lion]
@@ -219,15 +263,15 @@ playGame = undefined
 gameCreator :: Text
 gameCreator = "gameCreator"
 
-cookie :: Text -> Text -> Text
-cookie key value = key <> "=" <> value
-
 gameCreatorCookie :: Text -> Maybe GameId
-gameCreatorCookie text = do
-  creatorId <- lookup gameCreator $ parseCookiesText $ TE.encodeUtf8 text
-  return $ GameId creatorId
+gameCreatorCookie = fmap GameId . getCookie gameCreator
 
--- ID and Player Generation
+getCookie :: Text -> Text -> Maybe Text
+getCookie key =
+  lookup key . parseCookiesText . TE.encodeUtf8
+
+nameCookie :: Text -> Maybe ()
+nameCookie = void . getCookie "name"
 
 generateId :: IO Text
 generateId = stringRandomIO "[a-zA-Z0-9]{5}"

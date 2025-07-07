@@ -5,7 +5,5 @@ const { gameId } = Astro.params;
 ---
 <Htmx title="Tigers and Pots" >
     <h1>{gameId}</h1>
-    <div id="game" hx-ext="ws" ws-connect=`/api/tigris/${gameId}`>
-      <div id="board"/>
-    </div>
+    <div id="game" hx-get=`/api/tigris/${gameId}` hx-trigger="load" hx-swap="outerHTML" />
 </Htmx>
