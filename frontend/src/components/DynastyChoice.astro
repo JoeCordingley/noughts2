@@ -36,11 +36,9 @@ button.dynasty {
   border-radius: 4px;
   cursor: pointer;
 }
-button.taken {
-  background-color: gray;
-}
-button.mine {
-  background-color: blue;
+div.mine {
+  border: 2px solid blue;
+  background-color: transparent;
 }
 </style>
 
@@ -48,7 +46,7 @@ button.mine {
 	<h2>Choose Your Dynasty</h2>
 	<div class="dynasty-grid">
 		{values.map(({dynasty, taken, mine, player}) => (
-			<div class="dynasty-box">
+		<div class:list={ ['dynasty-box', {mine: mine}, {taken: taken}]}>
 				<strong>{dynasty}</strong>
 				<small>{taken ? `Player: ${player}` : "Available"}</small>
 				{!taken && (
