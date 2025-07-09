@@ -132,8 +132,8 @@ server games = createGame games :<|> gameEndpoints
 gameHandler :: TVar GameMap -> GameId -> Maybe Text -> Handler GameResponse
 gameHandler games id maybeCookies = withGame games id f
   where
-    f game = return $ case maybeCookies >>= nameCookie of
-      Just name -> websocketHtml id
+    f _ = return $ case maybeCookies >>= playerIdCookie of
+      Just _ -> websocketHtml id
       Nothing ->
         form_ [term "hx-post" ("/api/tigris/" <> gameId id <> "/join")] $ do
           input_ [id_ "name", name_ "name", type_ "text"]
@@ -300,9 +300,6 @@ playerIdCookie = fmap PlayerId . getCookie playerIdKey
 getCookie :: Text -> Text -> Maybe Text
 getCookie key =
   lookup key . parseCookiesText . TE.encodeUtf8
-
-nameCookie :: Text -> Maybe ()
-nameCookie = void . getCookie "name"
 
 generateId :: IO Text
 generateId = stringRandomIO "[a-zA-Z0-9]{5}"
