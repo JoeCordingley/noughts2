@@ -6,31 +6,27 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
 module Tigris.Api (runServer) where
 
 import BasicPrelude
-import qualified BasicPrelude as T
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Async (cancel, withAsync)
 import Control.Concurrent.STM
 import Control.Monad.Error.Class (MonadError)
 import Data.Aeson (FromJSON, ToJSON, decode)
-import Data.Bimap (Bimap)
-import qualified Data.Bimap as Bimap
-import qualified Data.ByteString.Lazy as BL
 import Data.Function (fix)
 import qualified Data.Map as Map
-import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
-import Lib (encodeToText, keepAlive, recursing, returning, sendHtml)
+import Lib (encodeToText, keepAlive, returning, sendHtml)
 import Lucid (term, toHtml)
 import Lucid.Base (Html)
 import Lucid.Html5
 import Network.Wai.Handler.Warp (run)
-import Network.WebSockets.Connection (Connection, receiveData, sendTextData)
+import Network.WebSockets.Connection (Connection, receiveData)
 import Servant
 import Servant.API.ContentTypes.Lucid
 import Servant.API.WebSocket (WebSocket)
@@ -39,7 +35,7 @@ import Web.Cookie (parseCookiesText)
 
 -- Types
 
-data SetupMessage = TakePosition PlayerId Dynasty deriving (Generic, Show)
+data SetupMessage = TakePosition PlayerId Dynasty | StartGame deriving (Generic, Show)
 
 data Role = Host | Guest deriving (Eq, Ord, Show)
 
@@ -91,23 +87,26 @@ type API =
                 )
        )
 
+addPlayerIdCookie :: (AddHeader [Optional, Strict] h Text orig new) => PlayerId -> orig -> new
+addPlayerIdCookie (PlayerId playerId) = addHeader (cookie playerIdKey playerId)
+
 createGame :: TVar GameMap -> [(Text, Text)] -> Handler CreateGameResponse
 createGame games formData = case lookup "name" formData of
   Just name -> liftIO $ do
     putStrLn $ "Creating game for player: " <> name
-    PlayerId playerId <- newPlayerId
-    GameId newId <- createNewGame games (PlayerId playerId) name
-    return $ addHeader ("/games/tigris/" <> newId) $ addHeader (cookie playerIdKey playerId) NoContent
+    playerId <- newPlayerId
+    GameId newId <- createNewGame games playerId name
+    return $ addHeader ("/games/tigris/" <> newId) $ addPlayerIdCookie playerId NoContent
   Nothing -> throwError err400
 
 cookie :: Text -> Text -> Text
 cookie key value = key <> "=" <> value
 
 playGameHandler :: (MonadIO f, MonadError ServerError f) => TVar GameMap -> GameId -> Maybe Text -> Connection -> f ()
-playGameHandler games gameId maybeCookies conn = withGame games gameId $ connectGame gameId maybeCookies conn
+playGameHandler games gameId maybeCookies conn = withGame games gameId $ connectGame maybeCookies conn
 
-connectGame :: (MonadIO f, MonadError ServerError f) => GameId -> Maybe Text -> Connection -> Game -> f ()
-connectGame gameId maybeCookies conn game = do
+connectGame :: (MonadIO f, MonadError ServerError f) => Maybe Text -> Connection -> Game -> f ()
+connectGame maybeCookies conn game = do
   putStrLn "connected"
   player <- case maybeCookies >>= playerIdCookie of
     Just id -> return id
@@ -145,9 +144,9 @@ websocketHtml id = div_ [id_ "game", term "hx-ext" "ws", term "ws-connect" ("/ap
 joinGame :: TVar GameMap -> GameId -> [(Text, Text)] -> Handler JoinGameResponse
 joinGame games gameId formData = withGame games gameId $ \game -> case lookup "name" formData of
   Just name -> liftIO $ do
-    PlayerId playerId <- newPlayerId
-    atomically $ addPlayer (PlayerId playerId) name game
-    return $ addHeader (cookie playerIdKey playerId) (websocketHtml gameId)
+    playerId <- newPlayerId
+    atomically $ addPlayer playerId name game
+    return $ addPlayerIdCookie playerId $ websocketHtml gameId
   Nothing -> throwError err400
 
 withGame ::
@@ -229,11 +228,9 @@ chooseDynasty playerMap player =
       small_ $ toHtml status
       unless isTaken $ button_ [class_ "dynasty", term "hx-vals" jsonVal, term "ws-send" mempty] "Choose"
       where
-        isTaken = isJust dynastyPlayer
-        dynastyPlayer = Map.lookup dynasty playerMap
-        (isMine, status) = case dynastyPlayer of
-          Just (id, name) -> (id == player, "Player: " <> name)
-          Nothing -> (False, "Available")
+        (isTaken, isMine, status) = case Map.lookup dynasty playerMap of
+          Just (id, name) -> (True, id == player, "Player: " <> name)
+          Nothing -> (False, False, "Available")
         jsonVal = encodeToText $ DynastyChoice dynasty
 
 -- Dummy read loop (simulate receiving inputs)
@@ -251,43 +248,59 @@ readLoop conn queue = forever $ do
 
 hostGame :: Game -> IO ()
 hostGame game = do
-  playerMap <- fixAtomically (notifyPlayers <=< withNames) (setupGame receiveMsg) startingState
+  playerMap <- seatPlayers game startingState
   playGame playerMap
   where
-    withNames :: Map Dynasty PlayerId -> STM (Map Dynasty (PlayerId, Name))
-    withNames m = fmap (withNames' m) $ readTVar $ playerNames game
-    receiveMsg = (readTVar $ playerInputs game) >>= firstPlayerMessage
-    firstPlayerMessage = foldr orElse retry . map (uncurry $ fmap . TakePosition)
-    notifyPlayers playerMap = do
-      notifySetup (readTVar $ playerOutputs game) playerMap
-      writeTVar (latestState game) playerMap
     startingState = Map.empty
 
-withNames' :: Map Dynasty PlayerId -> Map PlayerId Name -> Map Dynasty (PlayerId, Name)
-withNames' m n = Map.mapMaybe f m
+seatPlayers :: Game -> Map Dynasty PlayerId -> IO (Map Dynasty PlayerId)
+seatPlayers game = firstNotification >=> setupGame receiveMsg notify
   where
-    f playerId = case Map.lookup playerId n of
-      Just name -> Just (playerId, name)
-      Nothing -> Nothing
+    firstNotification = atomically . returning notify
+    notify = withNames >=> notifyPlayers
+    withNames m = fmap (`composeMapWithInput` m) . readTVar $ playerNames game
+    receiveMsg = (readTVar $ playerInputs game) >>= nextPlayerMessage
+    nextPlayerMessage = foldr orElse retry . map (uncurry $ fmap . TakePosition)
+    notifyPlayers playerMap = do
+      readTVar (playerOutputs game) >>= traverse_ ($ playerMap)
+      writeTVar (latestState game) playerMap
+
+composeMapWithInput :: (Ord a) => Map a b -> Map k a -> Map k (a, b)
+composeMapWithInput = Map.mapMaybe . withInput . flip Map.lookup
+  where
+    withInput f a = (a,) <$> f a
 
 notifySetup :: STM [Map Dynasty (PlayerId, Name) -> STM ()] -> Map Dynasty (PlayerId, Name) -> STM ()
 notifySetup playersVar playerMap = playersVar >>= traverse_ ($ playerMap)
 
-fixAtomically :: (a -> STM b) -> ((a -> STM a) -> a -> STM a) -> a -> IO a
-fixAtomically notify f = atomically . (returning notify) >=> loop
+setupGame :: STM SetupMessage -> (Map Dynasty PlayerId -> STM ()) -> Map Dynasty PlayerId -> IO (Map Dynasty PlayerId)
+setupGame receive notify = continuation
   where
-    loop = atomically . f (returning notify) >=> loop
+    continuation playerMap = join . atomically $ do
+      message <- receive
+      case message of
+        TakePosition player position -> do
+          notify newPosition
+          return $ continuation newPosition
+          where
+            newPosition = takePosition playerMap
+            takePosition = if Map.notMember position playerMap then Map.insert position player . Map.filter (/= player) else id
+        StartGame -> return $ return playerMap
 
-setupGame :: (Monad m) => m SetupMessage -> (Map Dynasty PlayerId -> m b) -> Map Dynasty PlayerId -> m b
-setupGame receive recurse playerMap = do
+setupGame2 :: (Monad m) => m SetupMessage -> (Map Dynasty PlayerId -> m b) -> (Map Dynasty PlayerId -> m b) -> Map Dynasty PlayerId -> m b
+setupGame2 receive recurse end playerMap = do
   message <- receive
   case message of
-    TakePosition player position -> recurse $ takePosition playerMap
+    TakePosition player position -> recurse newPosition
       where
+        newPosition = takePosition playerMap
         takePosition = if Map.notMember position playerMap then Map.insert position player . Map.filter (/= player) else id
+    StartGame -> end playerMap
 
 playGame :: a -> IO ()
 playGame = undefined
+
+data StopOrContinue = Stop | Continue
 
 -- WebSocket Helpers
 
