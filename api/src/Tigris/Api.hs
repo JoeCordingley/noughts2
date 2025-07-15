@@ -274,28 +274,52 @@ notifySetup :: STM [Map Dynasty (PlayerId, Name) -> STM ()] -> Map Dynasty (Play
 notifySetup playersVar playerMap = playersVar >>= traverse_ ($ playerMap)
 
 setupGame :: STM SetupMessage -> (Map Dynasty PlayerId -> STM ()) -> Map Dynasty PlayerId -> IO (Map Dynasty PlayerId)
-setupGame receive notify = continuation
-  where
-    continuation playerMap = join . atomically $ do
-      message <- receive
-      case message of
-        TakePosition player position -> do
-          notify newPosition
-          return $ continuation newPosition
-          where
-            newPosition = takePosition playerMap
-            takePosition = if Map.notMember position playerMap then Map.insert position player . Map.filter (/= player) else id
-        StartGame -> return $ return playerMap
+setupGame receive notify playerMap = join . atomically $ do
+  message <- receive
+  case message of
+    TakePosition player position -> do
+      notify newPosition
+      return $ setupGame receive notify newPosition
+      where
+        newPosition = takePosition playerMap
+        takePosition = if Map.notMember position playerMap then Map.insert position player . Map.filter (/= player) else id
+    StartGame -> return $ return playerMap
 
-setupGame2 :: (Monad m) => m SetupMessage -> (Map Dynasty PlayerId -> m b) -> (Map Dynasty PlayerId -> m b) -> Map Dynasty PlayerId -> m b
-setupGame2 receive recurse end playerMap = do
+setupGame3 :: STM SetupMessage -> (Map Dynasty PlayerId -> STM ()) -> Map Dynasty PlayerId -> IO (Map Dynasty PlayerId)
+setupGame3 receive notify = x
+  where
+    x = join . atomically . unfixed (y x)
+      where
+        y f position = do
+          notify position
+          return $ f position
+        unfixed recurse playerMap = do
+          message <- receive
+          case message of
+            TakePosition player position -> recurse newPosition
+              where
+                newPosition = takePosition playerMap
+                takePosition = if Map.notMember position playerMap then Map.insert position player . Map.filter (/= player) else id
+            StartGame -> return $ return playerMap
+
+-- fix :: (a -> a) -> a
+-- fix f = x where
+--   x = f x
+
+fixm :: ((a -> m b) -> a -> m b) -> a -> m b
+fixm f a = x a
+  where
+    x = f (\recurse -> x recurse)
+
+setupGame2 :: (Monad m) => m SetupMessage -> (Map Dynasty PlayerId -> m (Map Dynasty PlayerId)) -> Map Dynasty PlayerId -> m (Map Dynasty PlayerId)
+setupGame2 receive recurse playerMap = do
   message <- receive
   case message of
     TakePosition player position -> recurse newPosition
       where
         newPosition = takePosition playerMap
         takePosition = if Map.notMember position playerMap then Map.insert position player . Map.filter (/= player) else id
-    StartGame -> end playerMap
+    StartGame -> return playerMap
 
 playGame :: a -> IO ()
 playGame = undefined
