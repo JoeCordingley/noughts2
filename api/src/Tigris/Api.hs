@@ -8,7 +8,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
-module Tigris.Api (runServer) where
+module Tigris.Api (runServer, Dynasty) where
 
 import BasicPrelude
 import Control.Concurrent (forkIO)
@@ -21,7 +21,7 @@ import qualified Data.Map as Map
 import qualified Data.Text.Encoding as TE
 import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
-import Lib (encodeToText, keepAlive, returning, sendHtml)
+import Lib
 import Lucid (term, toHtml)
 import Lucid.Base (Html)
 import Lucid.Html5
@@ -41,15 +41,11 @@ data Role = Host | Guest deriving (Eq, Ord, Show)
 
 data Player = Player Role PlayerId Name deriving (Eq, Ord, Show)
 
-type Name = Text
-
 data Dynasty = Archer | Bull | Pot | Lion deriving (Eq, Ord, Generic, Show)
 
 instance FromJSON Dynasty
 
 instance ToJSON Dynasty
-
-data GameId = GameId {gameId :: Text} deriving (Eq, Show, Ord)
 
 instance FromHttpApiData GameId where
   parseUrlPiece = Right . GameId
@@ -162,8 +158,6 @@ withGame gamesVar gameId action = do
     Nothing -> throwError err404
 
 -- Game Creation
-
-data PlayerId = PlayerId Text deriving (Eq, Ord, Show)
 
 createNewGame :: TVar GameMap -> PlayerId -> Name -> IO GameId
 createNewGame games host name = do
