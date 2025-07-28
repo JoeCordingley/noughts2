@@ -1,15 +1,19 @@
 ---
 const values = [ 
-	{dynasty: "Archer", player: "Alice", taken : true, mine : false},
-	{dynasty: "Bull", player: "Bob", taken : true, mine : false},
-	{dynasty: "Pot", player: "Charlie", taken : true, mine : true},
-	{dynasty: "Lion", taken : false, mine : false}
+  {dynasty: "Archer", player: "Alice", taken : true, mine : false},
+  {dynasty: "Bull", player: "Bob", taken : true, mine : false},
+  {dynasty: "Pot", player: "Charlie", taken : true, mine : true},
+  {dynasty: "Lion", taken : false, mine : false}
 ]
 ---
 <style>
+html {
+  font-size: 18px;
+}
 #board {
   max-width: 600px;
   margin: 0 auto;
+  text-align: center; /* center inline elements like buttons */
 }
 
 .dynasty-grid {
@@ -25,36 +29,68 @@ const values = [
   display: flex;
   flex-direction: column;
   align-items: start;
+  min-height: 120px; /* or whatever value balances your layout */
+  background-color: #f9f9f9;
+
 }
 
-button.dynasty {
-  margin-top: 0.5em;
-  padding: 0.4em 0.8em;
-  background-color: green;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
+.dynasty-box strong {
+  font-size: 1.1em;
+}
+
+.dynasty-box small {
+  font-size: 0.9em;
+  color: #666;
+}
+div.taken {
+  background-color: #eee; /* or light gray-blue */
+  opacity: 0.6;
 }
 div.mine {
   border: 2px solid blue;
   background-color: transparent;
 }
+button.action {
+  padding: 0.75em 1.5em;
+  font-size: 1.1em;
+  background-color: #4CAF50; /* softer green */
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+span.button-area {
+  height: 2em; 
+}
+button.start-game {
+  margin-top: 2em;
+}
+button.dynasty {
+  margin-top: 1em;
+}
+
+button.start-game:hover {
+  background-color: #3e8e41;
+}
 </style>
 
 <div id="board">
-	<h2>Choose Your Dynasty</h2>
-	<div class="dynasty-grid">
-		{values.map(({dynasty, taken, mine, player}) => (
-		<div class:list={ ['dynasty-box', {mine: mine}, {taken: taken}]}>
-				<strong>{dynasty}</strong>
-				<small>{taken ? `Player: ${player}` : "Available"}</small>
-				{!taken && (
-					<button class="dynasty">
-						Choose
-					</button>
-				)}
-			</div>
-		))}
-	</div>
+  <h2>Choose Your Dynasty</h2>
+  <div class="dynasty-grid">
+    {values.map(({dynasty, taken, mine, player}) => (
+    <div class:list={ ['dynasty-box', {mine: mine}, {taken: taken}]}>
+        <strong>{dynasty}</strong>
+        <small>{taken ? `Player: ${player}` : "Available"}</small>
+        <span class="button-area">
+          {!taken && (
+            <button class="dynasty action">
+              Choose
+            </button>
+          )}
+        </span>
+      </div>
+    ))}
+  </div>
+  <button class="start-game action"> Start Game</button>
 </div>
