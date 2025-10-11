@@ -49,7 +49,7 @@ composeMapWithInput = Map.mapMaybe . withInput . flip Map.lookup
 fixAtomically :: ((a -> STM (IO b)) -> a -> STM (IO b)) -> a -> IO b
 fixAtomically f = fix $ \recurse -> join . atomically . (f $ pure . recurse)
 
-data PositionChoice a = PositionChoice {position :: a} deriving (Generic)
+data PositionChoice a = PositionChoice {position :: a} | StartGame deriving (Generic, Show)
 
 instance (FromJSON a) => FromJSON (PositionChoice a)
 
