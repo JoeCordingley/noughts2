@@ -24,7 +24,7 @@ import Lucid (term)
 import Lucid.Base (Html)
 import Lucid.Html5
 import Network.Wai.Handler.Warp (run)
-import Network.WebSockets.Connection (Connection, receiveData)
+import Network.WebSockets.Connection (Connection, receiveData, sendTextData)
 import Servant
 import Servant.API.ContentTypes.Lucid (HTML)
 import Servant.API.WebSocket (WebSocket)
@@ -53,7 +53,8 @@ runServer :: IO ()
 runServer = do
   gameMaps <- newGameMaps
   putStrLn "Running on http://localhost:8080/"
-  run 8080 (serve (Proxy :: Proxy Api) (server gameMaps))
+  chooseDynasty <- Tigris.chooseDynasty
+  run 8080 (serve (Proxy :: Proxy Api) (server chooseDynasty gameMaps))
 
 newGameMaps :: IO GameMaps
 newGameMaps =
@@ -86,8 +87,8 @@ paths game =
       getPlayPath = \id -> "/api/" <> game <> "/" <> gameId id <> "/play"
     }
 
-server :: GameMaps -> Server Api
-server (GameMaps {noughtsMap, tigrisMap}) = gameserver' "noughts" noughtsMap playNoughts isReadyNoughts chooseRoleNoughts :<|> gameserver' "tigris" tigrisMap playTigris Tigris.isReady Tigris.chooseDynasty
+server :: (Map Dynasty (PlayerId, Name) -> PlayerId -> Text) -> GameMaps -> Server Api
+server tigrisChooseDynasty (GameMaps {noughtsMap, tigrisMap}) = gameserver' "noughts" noughtsMap playNoughts isReadyNoughts chooseRoleNoughts :<|> gameserver' "tigris" tigrisMap playTigris Tigris.isReady tigrisChooseDynasty
   where
     gameserver' name gameMap playGame isReady chooseRole = gameserver (responses $ paths name) (ServerDependencies {createGame, newPlayerId, getGame})
       where
@@ -153,7 +154,7 @@ gameserver (Responses {createGameResponse, websocketResponse, formResponse, join
     gameEndpoints id = withGame . const . gameHandler :<|> withGame . joinGameHandler :<|> withGame .: playGameHandler
       where
         withGame f = maybe (throwError err400) f =<< (liftIO $ getGame id)
-        gameHandler maybeCookies = return $ bool (websocketResponse id) (formResponse id) . isJust $ playerIdCookie =<< maybeCookies
+        gameHandler maybeCookies = return $ bool (formResponse id) (websocketResponse id) . isJust $ playerIdCookie =<< maybeCookies
         joinGameHandler formData game =
           maybe (throwError err400) (return . joinGameResponse id)
             =<< liftIO (traverse joinGame $ lookup "name" formData)
@@ -233,12 +234,12 @@ readLoop conn queue = forever $ do
     Nothing -> do
       return () -- Handle decoding failure
 
-type ChooseRoleHtml a = Map a (PlayerId, Name) -> PlayerId -> Html ()
+type ChooseRoleHtml a = Map a (PlayerId, Name) -> PlayerId -> Text
 
 sendLoop :: ChooseRoleHtml a -> TQueue (Map a (PlayerId, Name)) -> Connection -> PlayerId -> IO ()
 sendLoop chooseRole queue conn player = forever $ do
   state <- atomically $ readTQueue queue
-  sendHtml conn $ chooseRole state player
+  sendTextData conn $ chooseRole state player
 
 addPlayerIdCookie :: (AddHeader [Optional, Strict] h Text orig new) => PlayerId -> orig -> new
 addPlayerIdCookie (PlayerId playerId) = addHeader (cookie playerIdKey playerId)

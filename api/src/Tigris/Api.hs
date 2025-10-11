@@ -11,13 +11,14 @@
 module Tigris.Api (Dynasty, chooseDynasty, isReady) where
 
 import BasicPrelude
-import Data.Aeson (FromJSON, ToJSON)
+import Data.Aeson (FromJSON, ToJSON, object, (.=))
 import qualified Data.Map as Map
 import GHC.Generics (Generic)
 import Lib
 import Lucid (term, toHtml)
 import Lucid.Base (Html)
 import Lucid.Html5
+import Text.Mustache (Template, automaticCompile, substitute)
 
 -- Types
 
@@ -27,25 +28,29 @@ instance FromJSON Dynasty
 
 instance ToJSON Dynasty
 
-chooseDynasty :: Map Dynasty (PlayerId, Name) -> PlayerId -> Html ()
-chooseDynasty playerMap player =
-  div_ [id_ "board"] $ do
-    h2_ "Choose Your Dynasty"
-    div_ [class_ "dynasty-grid"]
-      $ forM_ [Archer, Bull, Pot, Lion]
-      $ dynastyDiv
-    when (isReady playerMap) $ button_ [class_ "start-game action", term "hx-vals" (encodeToText (StartGame :: PositionChoice Dynasty)), term "ws-send" mempty] "Start Game"
+chooseDynasty ::
+  IO (Map Dynasty (PlayerId, Name) -> PlayerId -> Text)
+chooseDynasty = do
+  eTemplate <- automaticCompile ["../shared/templates"] "dynastyChoice.mustache"
+  case eTemplate of
+    Left err -> error $ "Mustache template parse error: " <> show err
+    Right tmpl -> pure (render tmpl)
   where
-    dynastyDiv :: Dynasty -> Html ()
-    dynastyDiv dynasty = div_ ([class_ "dynasty-box"] ++ if isMine then [class_ "mine"] else []) $ do
-      strong_ . toHtml $ show dynasty
-      small_ $ toHtml status
-      span_ [class_ "button-area"] $ unless isTaken $ button_ [class_ "dynasty", class_ "action", term "hx-vals" jsonVal, term "ws-send" mempty] "Choose"
+    render :: Template -> Map Dynasty (PlayerId, Name) -> PlayerId -> Text
+    render tmpl playerMap player = substitute tmpl context
       where
-        (isTaken, isMine, status) = case Map.lookup dynasty playerMap of
-          Just (id, name) -> (True, id == player, "Player: " <> name)
-          Nothing -> (False, False, "Available")
-        jsonVal = encodeToText $ PositionChoice dynasty
+        context = object ["values" .= map forDynasty [Archer, Bull, Pot, Lion]]
+        forDynasty dynasty =
+          object
+            [ "dynasty" .= show dynasty,
+              "mine" .= isMine,
+              "taken" .= isTaken,
+              "player" .= name
+            ]
+          where
+            (isTaken, isMine, name) = case Map.lookup dynasty playerMap of
+              Just (id', playerName) -> (True, id' == player, Just playerName)
+              Nothing -> (False, False, Nothing)
 
 isReady :: Map Dynasty a -> Bool
 isReady playerMap = Map.size playerMap >= 2

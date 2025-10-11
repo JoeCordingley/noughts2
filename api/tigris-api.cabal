@@ -52,6 +52,7 @@ library
     , lens
     , lucid2
     , mtl
+    , mustache
     , servant
     , servant-server
     , servant-websockets
@@ -88,6 +89,7 @@ executable tigris-api-exe
     , lens
     , lucid2
     , mtl
+    , mustache
     , servant
     , servant-server
     , servant-websockets
@@ -127,6 +129,7 @@ test-suite tigris-api-test
     , lens
     , lucid2
     , mtl
+    , mustache
     , servant
     , servant-server
     , servant-websockets
