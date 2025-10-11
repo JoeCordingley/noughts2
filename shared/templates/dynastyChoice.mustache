@@ -1,0 +1,20 @@
+<div id="board">
+  <h2>Choose Your Dynasty</h2>
+  <div class="dynasty-grid">
+    {{#values}}
+      <div class="dynasty-box {{#mine}}mine{{/mine}} {{#taken}}taken{{/taken}}">
+        <strong>{{dynasty}}</strong>
+        <small>
+          {{#taken}}Player: {{player}}{{/taken}}
+          {{^taken}}Available{{/taken}}
+        </small>
+        <span class="button-area">
+          {{^taken}}
+            <button class="dynasty action">Choose</button>
+          {{/taken}}
+        </span>
+      </div>
+    {{/values}}
+  </div>
+  <button class="start-game action">Start Game</button>
+</div>
