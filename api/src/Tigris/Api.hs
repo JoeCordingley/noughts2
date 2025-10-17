@@ -54,3 +54,6 @@ chooseDynasty = do
 
 isReady :: Map Dynasty a -> Bool
 isReady playerMap = Map.size playerMap >= 2
+
+playTigris :: Map Dynasty PlayerId -> IO ()
+playTigris playerMap = undefined

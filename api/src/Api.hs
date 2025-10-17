@@ -126,9 +126,6 @@ newGame (Player {playerId, playerName}) = do
 playNoughts :: Map NoughtOrCross PlayerId -> IO ()
 playNoughts playerMap = undefined
 
-playTigris :: Map Dynasty PlayerId -> IO ()
-playTigris playerMap = undefined
-
 chooseRoleNoughts :: ChooseRoleHtml NoughtOrCross
 chooseRoleNoughts = undefined
 

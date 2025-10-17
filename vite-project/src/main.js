@@ -1,4 +1,3 @@
-'use strict';
 import Navigo from 'navigo'
 import Mustache from 'mustache'
 
@@ -18,6 +17,12 @@ async function loadPage(path: string) {
   router.updatePageLinks() // rebind <a> tags after load
 }
 
+const values = [ 
+  {dynasty: "Archer", player: "Alice", taken : true, mine : false},
+  {dynasty: "Bull", player: "Bob", taken : true, mine : false},
+  {dynasty: "Pot", player: "Charlie", taken : true, mine : true},
+  {dynasty: "Lion", taken : false, mine : false}
+]
 
 router
   .on('/', () => loadPage('/src/tigris.html'))
@@ -26,12 +31,6 @@ router
 
 if (import.meta.env.DEV) {
   const { default: devTemplate } = await import('@shared/templates/dynastyChoice.mustache?raw')
-  const values = [ 
-    {dynasty: "Archer", player: "Alice", taken : true, mine : false},
-    {dynasty: "Bull", player: "Bob", taken : true, mine : false},
-    {dynasty: "Pot", player: "Charlie", taken : true, mine : true},
-    {dynasty: "Lion", taken : false, mine : false}
-  ]
   router.on('/games/tigris/dev', () => {
     app.innerHTML = Mustache.render(devTemplate, {values})
   })

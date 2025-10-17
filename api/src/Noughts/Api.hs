@@ -19,7 +19,7 @@ import Data.Semigroup
 import qualified Data.Text.Lazy as TL
 import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
-import Lib (encodeToText, keepAlive, sendHtml)
+import Lib (ChooseRoleHtml, encodeToText, keepAlive, sendHtml)
 import Lucid (term)
 import Lucid.Base (Attributes, Html, renderText)
 import Lucid.Html5
@@ -193,3 +193,6 @@ data MoveKey = MoveObject {moveKey :: Move} deriving (Generic)
 instance ToJSON MoveKey
 
 instance FromJSON MoveKey
+
+chooseRoleNoughts :: ChooseRoleHtml NoughtOrCross
+chooseRoleNoughts = undefined
