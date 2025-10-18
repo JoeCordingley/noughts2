@@ -19,7 +19,7 @@ import Data.Semigroup
 import qualified Data.Text.Lazy as TL
 import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
-import Lib (ChooseRoleHtml, encodeToText, keepAlive, sendHtml)
+import Lib
 import Lucid (term)
 import Lucid.Base (Attributes, Html, renderText)
 import Lucid.Html5
@@ -176,12 +176,6 @@ play notify getMove = do
   where
     notifyPlaying (GameInPlay player board) = notify . Update board $ Unfinished player
     notifyResult (FinishedGame board result) = notify . Update board $ FinishedStatus result
-
-recursing :: (Monad f) => (a -> f ()) -> (a -> f b) -> a -> f b
-recursing f recurse = (returning f) >=> recurse
-
-returning :: (Applicative f) => (a -> f ()) -> a -> f a
-returning f a = a <$ f a
 
 gridForWinningLine :: WinningLine -> Grid Bool
 gridForWinningLine = foldr f emptyWonGrid

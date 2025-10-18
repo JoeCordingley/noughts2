@@ -4,6 +4,7 @@ import Mustache from 'mustache'
 
 const router = new Navigo('/')
 const app = document.getElementById('app')!
+declare const htmx: any;
 
 import gameTemplate from '../templates/game.mustache?raw'
 
@@ -16,6 +17,7 @@ async function loadPage(path: string) {
   const html = await res.text()
   app.innerHTML = html
   router.updatePageLinks() // rebind <a> tags after load
+  htmx.process(app)
 }
 
 
@@ -39,6 +41,8 @@ if (import.meta.env.DEV) {
 
 router.on('/games/tigris/:gameId', ({ data }) => {
   app.innerHTML = Mustache.render(gameTemplate, { gameId: data.gameId })
+  router.updatePageLinks()
+  htmx.process(app)
 })
 
 router.notFound(() => {

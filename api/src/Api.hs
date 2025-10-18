@@ -67,8 +67,6 @@ data GameMaps = GameMaps
     tigrisMap :: TVar (GameMap Dynasty)
   }
 
-data NoughtOrCross = Nought | Cross deriving (Eq, Ord, Show, Generic)
-
 instance FromJSON NoughtOrCross
 
 type GameMap a = Map GameId (GameTVars a)
@@ -88,7 +86,7 @@ paths game =
     }
 
 server :: (Map Dynasty (PlayerId, Name) -> PlayerId -> Text) -> GameMaps -> Server Api
-server tigrisChooseDynasty (GameMaps {noughtsMap, tigrisMap}) = gameserver' "noughts" noughtsMap playNoughts isReadyNoughts chooseRoleNoughts :<|> gameserver' "tigris" tigrisMap playTigris Tigris.isReady tigrisChooseDynasty
+server tigrisChooseDynasty (GameMaps {noughtsMap, tigrisMap}) = gameserver' "noughts" noughtsMap playNoughts isReadyNoughts chooseRoleNoughts :<|> gameserver' "tigris" tigrisMap Tigris.play Tigris.isReady tigrisChooseDynasty
   where
     gameserver' name gameMap playGame isReady chooseRole = gameserver (responses $ paths name) (ServerDependencies {createGame, newPlayerId, getGame})
       where
@@ -145,6 +143,7 @@ gameserver (Responses {createGameResponse, websocketResponse, formResponse, join
     createGameHandler = maybe (throwError err400) (liftIO . handleCreateGame) . lookup "name"
       where
         handleCreateGame name = do
+          putStrLn "creating"
           playerId <- newPlayerId
           gameId <- createGame $ Player playerId name
           return $ createGameResponse gameId playerId
@@ -230,8 +229,6 @@ readLoop conn queue = forever $ do
       atomically $ writeTQueue queue $ message
     Nothing -> do
       return () -- Handle decoding failure
-
-type ChooseRoleHtml a = Map a (PlayerId, Name) -> PlayerId -> Text
 
 sendLoop :: ChooseRoleHtml a -> TQueue (Map a (PlayerId, Name)) -> Connection -> PlayerId -> IO ()
 sendLoop chooseRole queue conn player = forever $ do

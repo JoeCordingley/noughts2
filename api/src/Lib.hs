@@ -56,3 +56,5 @@ instance (FromJSON a) => FromJSON (PositionChoice a)
 instance (ToJSON a) => ToJSON (PositionChoice a)
 
 type ChooseRoleHtml a = Map a (PlayerId, Name) -> PlayerId -> Text
+
+data NoughtOrCross = Nought | Cross deriving (Eq, Ord, Show, Generic)
