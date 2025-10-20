@@ -14,7 +14,7 @@ async function start() {
   app.use(vite.middlewares);
 
   app.get("/html/:page", async (req, res) => {
-    const filePath = path.join("/", `${req.params.page}.html`);
+    const filePath = `./${req.params.page}.html`;
 
     if (!fs.existsSync(filePath)) {
       res.status(404).send("HTML page not found");
