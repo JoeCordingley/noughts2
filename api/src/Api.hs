@@ -90,13 +90,10 @@ serverDependencies hostGame chooseRole gameMap = ServerDependencies {createGame,
     newPlayerId = PlayerId <$> generateId
     createGame player = do
       gameId <- generateGameId
-      game <- atomically $ do
-        game <- newGame player
-        modifyTVar gameMap $ Map.insert gameId game
-        return game
+      game <- atomically $ returning (modifyTVar gameMap . Map.insert gameId) =<< newGame player
       forkIO $ hostGame game
       pure gameId
-    getGame gameId = fmap (fmap (table chooseRole) . Map.lookup gameId) $ readTVarIO gameMap
+    getGame gameId = (fmap (table chooseRole) . Map.lookup gameId) <$> readTVarIO gameMap
 
 startServer :: (Map Dynasty (PlayerId, Name) -> PlayerId -> Text) -> IO (Server Api)
 startServer tigrisChooseDynasty = (:<|>) <$> startGameServer "noughts" playNoughts isReadyNoughts chooseRoleNoughts <*> startGameServer "tigris" Tigris.play Tigris.isReady tigrisChooseDynasty

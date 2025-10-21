@@ -31,7 +31,7 @@ instance ToJSON Dynasty
 chooseDynasty ::
   IO (Map Dynasty (PlayerId, Name) -> PlayerId -> Text)
 chooseDynasty = do
-  eTemplate <- automaticCompile ["../shared/templates"] "dynastyChoice.mustache"
+  eTemplate <- automaticCompile ["./templates"] "dynastyChoice.mustache"
   case eTemplate of
     Left err -> error $ "Mustache template parse error: " <> show err
     Right tmpl -> pure (render tmpl)
