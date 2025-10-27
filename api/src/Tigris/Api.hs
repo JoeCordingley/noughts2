@@ -8,7 +8,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
-module Tigris.Api (Dynasty, chooseDynasty, isReady, play) where
+module Tigris.Api (Dynasty, chooseDynasty, isReady, play, gameServerDependencies) where
 
 import BasicPrelude
 import Data.Aeson (FromJSON, ToJSON, object, (.=))
@@ -52,10 +52,16 @@ chooseDynasty = do
               Just (id', playerName) -> (True, id' == player, Just playerName)
               Nothing -> (False, False, Nothing)
 
-isReady :: Map Dynasty a -> Bool
-isReady playerMap = Map.size playerMap >= 2
+gameServerDependencies :: IO (GameServerDependencies Dynasty)
+gameServerDependencies =
+  GameServerDependencies
+    <$> pure "tigris"
+    <*> pure play
+    <*> pure atLeastTwo
+    <*> chooseDynasty
+
+atLeastTwo :: Map Dynasty a -> Bool
+atLeastTwo playerMap = Map.size playerMap >= 2
 
 play :: Map Dynasty PlayerId -> IO ()
 play = undefined
-
-playTigris playerMap = undefined

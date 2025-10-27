@@ -57,4 +57,13 @@ instance (ToJSON a) => ToJSON (PositionChoice a)
 
 type ChooseRoleHtml a = Map a (PlayerId, Name) -> PlayerId -> Text
 
+instance FromJSON NoughtOrCross
+
 data NoughtOrCross = Nought | Cross deriving (Eq, Ord, Show, Generic)
+
+data GameServerDependencies a = GameServerDependencies
+  { name :: Text,
+    playGame :: Map a PlayerId -> IO (),
+    isReady :: Map a PlayerId -> Bool,
+    chooseRole :: Map a (PlayerId, Name) -> PlayerId -> Text
+  }

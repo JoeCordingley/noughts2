@@ -25,6 +25,7 @@ import Lucid.Base (Html)
 import Lucid.Html5
 import Network.Wai.Handler.Warp (run)
 import Network.WebSockets.Connection (Connection, receiveData, sendTextData)
+import qualified Noughts.Api as Noughts
 import Servant
 import Servant.API.ContentTypes.Lucid (HTML)
 import Servant.API.WebSocket (WebSocket)
@@ -57,13 +58,8 @@ type JoinGameResponse = Headers '[Header "Set-Cookie" Text] (Html ())
 runServer :: IO ()
 runServer = do
   putStrLn "Running on http://localhost:8080/"
-  chooseDynasty <- Tigris.chooseDynasty
-  server <- startServer chooseDynasty
+  server <- startServer
   run 8080 (serve (Proxy :: Proxy Api) server)
-
-instance FromJSON NoughtOrCross
-
-type GameMap a = Map GameId (GameTVars a)
 
 data Paths = Paths
   { getGamePath :: GameId -> Text,
@@ -79,13 +75,13 @@ paths game =
       getPlayPath = \id -> "/api/" <> game <> "/" <> gameId id <> "/play"
     }
 
-startGameServer :: (FromJSON a, Ord a, Show a) => Text -> (Map a PlayerId -> IO ()) -> (Map a PlayerId -> Bool) -> (Map a (PlayerId, Name) -> PlayerId -> Text) -> IO (Server ActionsApi)
-startGameServer name playGame isReady chooseRole = gameserver (responses $ paths name) . serverDependencies hostGame chooseRole <$> newTVarIO Map.empty
+startGameServer :: (FromJSON a, Ord a, Show a) => GameServerDependencies a -> IO (Server ActionsApi)
+startGameServer (GameServerDependencies {name, playGame, isReady, chooseRole}) = actionsApi (responses $ paths name) . actions hostGame chooseRole <$> newTVarIO Map.empty
   where
     hostGame = seatPlayers isReady >=> playGame
 
-serverDependencies :: (FromJSON a, Show a) => (GameTVars a -> IO ()) -> ChooseRoleHtml a -> TVar (Map GameId (GameTVars a)) -> ServerDependencies
-serverDependencies hostGame chooseRole gameMap = ServerDependencies {createGame, newPlayerId, getGame}
+actions :: (FromJSON a, Show a) => (GameTVars a -> IO ()) -> ChooseRoleHtml a -> TVar (Map GameId (GameTVars a)) -> Actions
+actions hostGame chooseRole gameMap = Actions {createGame, newPlayerId, getGame}
   where
     newPlayerId = PlayerId <$> generateId
     createGame player = do
@@ -95,8 +91,8 @@ serverDependencies hostGame chooseRole gameMap = ServerDependencies {createGame,
       pure gameId
     getGame gameId = (fmap (table chooseRole) . Map.lookup gameId) <$> readTVarIO gameMap
 
-startServer :: (Map Dynasty (PlayerId, Name) -> PlayerId -> Text) -> IO (Server Api)
-startServer tigrisChooseDynasty = (:<|>) <$> startGameServer "noughts" playNoughts isReadyNoughts chooseRoleNoughts <*> startGameServer "tigris" Tigris.play Tigris.isReady tigrisChooseDynasty
+startServer :: IO (Server Api)
+startServer = (:<|>) <$> (startGameServer =<< Noughts.gameServerDependencies) <*> (startGameServer =<< Tigris.gameServerDependencies)
 
 seatPlayers :: (Ord a) => (Map a PlayerId -> Bool) -> GameTVars a -> IO (Map a PlayerId)
 seatPlayers isReady game = firstNotification startingState >>= setupGameSTM isReady (receiveMsg $ playerInputs game) notify
@@ -117,36 +113,26 @@ newGame (Player {playerId, playerName}) = do
   names <- newTVar $ Map.singleton playerId playerName
   return GameTVars {latestState = latestState, playerOutputs = notify, playerInputs = ps, waitForFinish = forever $ threadDelay 10000, playerNames = names}
 
-playNoughts :: Map NoughtOrCross PlayerId -> IO ()
-playNoughts playerMap = undefined
-
-chooseRoleNoughts :: ChooseRoleHtml NoughtOrCross
-chooseRoleNoughts = undefined
-
-isReadyNoughts :: Map NoughtOrCross PlayerId -> Bool
-isReadyNoughts playerMap = Map.size playerMap >= 2
-
 receiveMsg :: TVar [(PlayerId, STM (PositionChoice a))] -> STM (SetupMessage a)
 receiveMsg = readTVar >=> nextPlayerMessage
   where
     nextPlayerMessage = foldr orElse retry . map (uncurry $ fmap . setupMessage)
 
-data ServerDependencies = ServerDependencies {createGame :: Player -> IO GameId, newPlayerId :: IO PlayerId, getGame :: GameId -> IO (Maybe Table)}
+data Actions = Actions {createGame :: Player -> IO GameId, newPlayerId :: IO PlayerId, getGame :: GameId -> IO (Maybe Table)}
 
-gameserver :: Responses -> ServerDependencies -> Server ActionsApi
-gameserver (Responses {createGameResponse, websocketResponse, formResponse, joinGameResponse}) (ServerDependencies {createGame, newPlayerId, getGame}) = createGameHandler :<|> gameEndpoints
+actionsApi :: Responses -> Actions -> Server ActionsApi
+actionsApi (Responses {createGameResponse, websocketResponse, formResponse, joinGameResponse}) (Actions {createGame, newPlayerId, getGame}) = createGameHandler :<|> gameEndpoints
   where
     createGameHandler = maybe (throwError err400) (liftIO . handleCreateGame) . lookup "name"
       where
         handleCreateGame name = do
-          putStrLn "creating"
           playerId <- newPlayerId
           gameId <- createGame $ Player playerId name
           return $ createGameResponse gameId playerId
     gameEndpoints id = withGame . const . gameHandler :<|> withGame . joinGameHandler :<|> withGame .: playGameHandler
       where
         withGame f = maybe (throwError err400) f =<< (liftIO $ getGame id)
-        gameHandler maybeCookies = return $ bool (formResponse id) (websocketResponse id) . isJust $ playerIdCookie =<< maybeCookies
+        gameHandler maybeCookies = return . bool (formResponse id) (websocketResponse id) . isJust $ playerIdCookie =<< maybeCookies
         joinGameHandler formData game =
           maybe (throwError err400) (return . joinGameResponse id)
             =<< liftIO (traverse joinGame $ lookup "name" formData)
