@@ -9,7 +9,7 @@
 
 module Api (runServer) where
 
-import BasicPrelude
+import BasicPrelude hiding (for_)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Async (cancel, withAsync)
 import Control.Concurrent.STM
@@ -21,11 +21,12 @@ import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
 import Lib
 import Lucid (term)
-import Lucid.Base (Html)
+import Lucid.Base (Html, termRaw)
 import Lucid.Html5
 import Network.Wai.Handler.Warp (run)
 import Network.WebSockets.Connection (Connection, receiveData, sendTextData)
 import qualified Noughts.Api as Noughts
+import Noughts.Game (Game)
 import Servant
 import Servant.API.ContentTypes.Lucid (HTML)
 import Servant.API.WebSocket (WebSocket)
@@ -34,7 +35,7 @@ import Tigris.Api (Dynasty)
 import qualified Tigris.Api as Tigris
 import Web.Cookie (parseCookiesText)
 
-type Api = ("noughts" :> ActionsApi :<|> "tigris" :> ActionsApi)
+type Api = ("noughts" :> GameApi :<|> "tigris" :> GameApi)
 
 type GameApi = PagesApi :<|> "api" :> ActionsApi
 
@@ -75,7 +76,7 @@ paths game =
       getPlayPath = \id -> "/api/" <> game <> "/" <> gameId id <> "/play"
     }
 
-startGameServer :: (FromJSON a, Ord a, Show a) => GameServerDependencies a -> IO (Server ActionsApi)
+startGameServer :: (FromJSON a, Ord a, Show a) => GameServerDependencies a -> IO (Server GameApi)
 startGameServer (GameServerDependencies {name, playGame, isReady, chooseRole}) = actionsApi (responses $ paths name) . actions hostGame chooseRole <$> newTVarIO Map.empty
   where
     hostGame = seatPlayers isReady >=> playGame
@@ -120,9 +121,10 @@ receiveMsg = readTVar >=> nextPlayerMessage
 
 data Actions = Actions {createGame :: Player -> IO GameId, newPlayerId :: IO PlayerId, getGame :: GameId -> IO (Maybe Table)}
 
-actionsApi :: Responses -> Actions -> Server ActionsApi
-actionsApi (Responses {createGameResponse, websocketResponse, formResponse, joinGameResponse}) (Actions {createGame, newPlayerId, getGame}) = createGameHandler :<|> gameEndpoints
+actionsApi :: Responses -> Actions -> Server GameApi
+actionsApi (Responses {createGamePage, createGameResponse, websocketResponse, formResponse, joinGameResponse}) (Actions {createGame, newPlayerId, getGame}) = gameHomeHandler :<|> (createGameHandler :<|> gameEndpoints)
   where
+    gameHomeHandler = return createGamePage
     createGameHandler = maybe (throwError err400) (liftIO . handleCreateGame) . lookup "name"
       where
         handleCreateGame name = do
@@ -153,12 +155,27 @@ data Responses = Responses
   { createGameResponse :: GameId -> PlayerId -> CreateGameResponse,
     websocketResponse :: GameId -> GameResponse,
     formResponse :: GameId -> GameResponse,
-    joinGameResponse :: GameId -> PlayerId -> JoinGameResponse
+    joinGameResponse :: GameId -> PlayerId -> JoinGameResponse,
+    createGamePage :: Html ()
   }
 
 responses :: Paths -> Responses
-responses (Paths {getGamePath, getPlayPath, getJoinGamePath}) = Responses {createGameResponse, websocketResponse, formResponse, joinGameResponse}
+responses (Paths {getGamePath, getPlayPath, getJoinGamePath}) = Responses {createGameResponse, websocketResponse, formResponse, joinGameResponse, createGamePage}
   where
+    createGamePage :: Html ()
+    createGamePage = html_ $ do
+      head_ $ do
+        title_ "Tigers and Pots"
+        meta_ [charset_ "utf-8"]
+        meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
+        script_ [src_ "https://unpkg.com/htmx.org@2.0.4", integrity_ "sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+"] ("" :: Text)
+        script_ [src_ "https://unpkg.com/htmx.org@2.0.4/dist/ext/ws.js"] ("" :: Text)
+      body_ $ div_ [] $ do
+        h1_ "Tigers and Pots"
+        form_ [term "hx-post" "/api/tigris/create", term "hx-target" "body"] $ do
+          label_ [for_ "player-name"] "Your name :"
+          input_ [id_ "name", name_ "name", type_ "text", term "required" ""]
+          button_ [type_ "submit"] "Create Game"
     createGameResponse gameId playerId = addHeader (getGamePath gameId) $ addPlayerIdCookie playerId NoContent
     websocketResponse :: GameId -> Html ()
     websocketResponse id = div_ [id_ "game", term "hx-ext" "ws", term "ws-connect" (getPlayPath id)] $ div_ [id_ "board"] $ return ()

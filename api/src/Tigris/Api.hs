@@ -8,7 +8,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
-module Tigris.Api (Dynasty, chooseDynasty, isReady, play, gameServerDependencies) where
+module Tigris.Api (Dynasty, chooseDynasty, isReady, play, gameServerDependencies, homePage) where
 
 import BasicPrelude
 import Data.Aeson (FromJSON, ToJSON, object, (.=))
@@ -65,3 +65,6 @@ atLeastTwo playerMap = Map.size playerMap >= 2
 
 play :: Map Dynasty PlayerId -> IO ()
 play = undefined
+
+homePage :: Html ()
+homePage = undefined
