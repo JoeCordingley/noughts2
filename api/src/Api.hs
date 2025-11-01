@@ -40,13 +40,12 @@ type Api = ("noughts" :> GameApi :<|> "tigris" :> GameApi)
 type GameApi = PagesApi :<|> "api" :> ActionsApi
 
 type PagesApi =
-  "create" :> Get '[HTML] (Html ())
+  "create" :> Get '[HTML] (Html ()) :<|> Capture "gameId" GameId :> Header "Cookie" Text :> Get '[HTML] GameResponse
 
 type ActionsApi =
   "create" :> ReqBody '[FormUrlEncoded] [(Text, Text)] :> Post '[JSON] CreateGameResponse
     :<|> Capture "gameId" GameId
-      :> ( Header "Cookie" Text :> Get '[HTML] GameResponse
-             :<|> "join" :> ReqBody '[FormUrlEncoded] [(Text, Text)] :> Post '[HTML] JoinGameResponse
+      :> ( "join" :> ReqBody '[FormUrlEncoded] [(Text, Text)] :> Post '[HTML] JoinGameResponse
              :<|> "play" :> Header "Cookie" Text :> WebSocket
          )
 
@@ -71,7 +70,7 @@ data Paths = Paths
 paths :: Text -> Paths
 paths game =
   Paths
-    { getGamePath = \id -> "/games/" <> game <> "/" <> gameId id,
+    { getGamePath = \id -> "/" <> game <> "/" <> gameId id,
       getJoinGamePath = \id -> "/api/" <> game <> "/" <> gameId id <> "/join",
       getPlayPath = \id -> "/api/" <> game <> "/" <> gameId id <> "/play"
     }
@@ -122,19 +121,26 @@ receiveMsg = readTVar >=> nextPlayerMessage
 data Actions = Actions {createGame :: Player -> IO GameId, newPlayerId :: IO PlayerId, getGame :: GameId -> IO (Maybe Table)}
 
 actionsApi :: Responses -> Actions -> Server GameApi
-actionsApi (Responses {createGamePage, createGameResponse, websocketResponse, formResponse, joinGameResponse}) (Actions {createGame, newPlayerId, getGame}) = gameHomeHandler :<|> (createGameHandler :<|> gameEndpoints)
+actionsApi (Responses {createGamePage, createGameResponse, knownPlayerResponse, unknownPlayerResponse, joinGameResponse}) (Actions {createGame, newPlayerId, getGame}) = (gameHomeHandler :<|> gameHandler) :<|> (createGameHandler :<|> gameEndpoints)
   where
+    withGame id f = maybe (throwError err400) f =<< (liftIO $ getGame id)
+    gameHandler id = withGame id . const . gameHandler'
+      where
+        gameHandler' maybeCookies = do
+          liftIO $ putStrLn "handling game page"
+          liftIO $ putStrLn $ tshow maybeCookies
+          return . bool (unknownPlayerResponse id) (knownPlayerResponse id) . isJust $ playerIdCookie =<< maybeCookies
     gameHomeHandler = return createGamePage
     createGameHandler = maybe (throwError err400) (liftIO . handleCreateGame) . lookup "name"
       where
         handleCreateGame name = do
+          liftIO $ putStrLn "creating"
           playerId <- newPlayerId
           gameId <- createGame $ Player playerId name
           return $ createGameResponse gameId playerId
-    gameEndpoints id = withGame . const . gameHandler :<|> withGame . joinGameHandler :<|> withGame .: playGameHandler
+    gameEndpoints id = withGame' . joinGameHandler :<|> withGame' .: playGameHandler
       where
-        withGame f = maybe (throwError err400) f =<< (liftIO $ getGame id)
-        gameHandler maybeCookies = return . bool (formResponse id) (websocketResponse id) . isJust $ playerIdCookie =<< maybeCookies
+        withGame' = withGame id
         joinGameHandler formData game =
           maybe (throwError err400) (return . joinGameResponse id)
             =<< liftIO (traverse joinGame $ lookup "name" formData)
@@ -153,37 +159,42 @@ data Player = Player {playerId :: PlayerId, playerName :: Name}
 
 data Responses = Responses
   { createGameResponse :: GameId -> PlayerId -> CreateGameResponse,
-    websocketResponse :: GameId -> GameResponse,
-    formResponse :: GameId -> GameResponse,
+    knownPlayerResponse :: GameId -> GameResponse,
+    unknownPlayerResponse :: GameId -> GameResponse,
     joinGameResponse :: GameId -> PlayerId -> JoinGameResponse,
     createGamePage :: Html ()
   }
 
+htmxPage :: Html () -> Html ()
+htmxPage content = html_ $ do
+  head_ $ do
+    title_ "Tigers and Pots"
+    meta_ [charset_ "utf-8"]
+    meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
+    script_ [src_ "https://unpkg.com/htmx.org@2.0.4"] ("" :: Text)
+    script_ [src_ "https://unpkg.com/htmx.org@1.9.12/dist/ext/ws.js"] ("" :: Text)
+  body_ content
+
 responses :: Paths -> Responses
-responses (Paths {getGamePath, getPlayPath, getJoinGamePath}) = Responses {createGameResponse, websocketResponse, formResponse, joinGameResponse, createGamePage}
+responses (Paths {getGamePath, getPlayPath, getJoinGamePath}) = Responses {createGameResponse, knownPlayerResponse, unknownPlayerResponse, joinGameResponse, createGamePage}
   where
     createGamePage :: Html ()
-    createGamePage = html_ $ do
-      head_ $ do
-        title_ "Tigers and Pots"
-        meta_ [charset_ "utf-8"]
-        meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
-        script_ [src_ "https://unpkg.com/htmx.org@2.0.4", integrity_ "sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+"] ("" :: Text)
-        script_ [src_ "https://unpkg.com/htmx.org@2.0.4/dist/ext/ws.js"] ("" :: Text)
-      body_ $ div_ [] $ do
-        h1_ "Tigers and Pots"
-        form_ [term "hx-post" "/api/tigris/create", term "hx-target" "body"] $ do
-          label_ [for_ "player-name"] "Your name :"
-          input_ [id_ "name", name_ "name", type_ "text", term "required" ""]
-          button_ [type_ "submit"] "Create Game"
-    createGameResponse gameId playerId = addHeader (getGamePath gameId) $ addPlayerIdCookie playerId NoContent
-    websocketResponse :: GameId -> Html ()
-    websocketResponse id = div_ [id_ "game", term "hx-ext" "ws", term "ws-connect" (getPlayPath id)] $ div_ [id_ "board"] $ return ()
-    formResponse :: GameId -> Html ()
-    formResponse id = form_ [term "hx-post" $ getJoinGamePath id] $ do
+    createGamePage = htmxPage $ div_ [] $ do
+      h1_ "Tigers and Pots"
+      form_ [term "hx-post" "/tigris/api/create", term "hx-target" "body"] $ do
+        label_ [for_ "player-name"] "Your name :"
+        input_ [id_ "name", name_ "name", type_ "text", term "required" ""]
+        button_ [type_ "submit"] "Create Game"
+    createGameResponse gameId playerId =
+      addHeader (getGamePath gameId) $ addPlayerIdCookie playerId NoContent
+    websocketDiv :: GameId -> Html ()
+    websocketDiv id = div_ [id_ "game", term "hx-ext" "ws", term "ws-connect" (getPlayPath id)] $ div_ [id_ "board"] $ return ()
+    knownPlayerResponse = htmxPage . websocketDiv
+    unknownPlayerResponse :: GameId -> Html ()
+    unknownPlayerResponse id = htmxPage $ form_ [term "hx-post" $ getJoinGamePath id] $ do
       input_ [id_ "name", name_ "name", type_ "text"]
       button_ [type_ "submit"] "Join"
-    joinGameResponse gameId playerId = addPlayerIdCookie playerId (websocketResponse gameId)
+    joinGameResponse gameId playerId = addPlayerIdCookie playerId (websocketDiv gameId)
 
 table :: (FromJSON a, Show a) => ChooseRoleHtml a -> GameTVars a -> Table
 table chooseRole tvars = Table {addPlayer, connectGame}
