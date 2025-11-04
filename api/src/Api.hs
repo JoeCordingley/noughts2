@@ -95,7 +95,7 @@ actions hostGame chooseRole gameMap = Actions {createGame, newPlayerId, getGame}
     getGame gameId = (fmap (table chooseRole) . Map.lookup gameId) <$> readTVarIO gameMap
 
 startServer :: IO (Server Api)
-startServer = joinHandlers <$> (startGameServer =<< Noughts.gameServerDependencies) <*> (startGameServer =<< Tigris.gameServerDependencies)
+startServer = joinHandlers <$> (startGameServer Noughts.gameServerDependencies) <*> (startGameServer Tigris.gameServerDependencies)
   where
     joinHandlers noughts tigris = noughts :<|> tigris :<|> serveDirectoryWebApp "static"
 
@@ -238,6 +238,7 @@ getCookie key =
 readLoop :: (FromJSON a, Show a) => Connection -> TQueue (PositionChoice a) -> IO ()
 readLoop conn queue = forever $ do
   msg <- receiveData conn
+  putStrLn $ "msg: " <> tshow msg
   case decode msg of
     Just message -> do
       putStrLn $ "message: " <> tshow message
@@ -248,7 +249,7 @@ readLoop conn queue = forever $ do
 sendLoop :: ChooseRoleHtml a -> TQueue (Map a (PlayerId, Name)) -> Connection -> PlayerId -> IO ()
 sendLoop chooseRole queue conn player = forever $ do
   state <- atomically $ readTQueue queue
-  sendTextData conn $ chooseRole state player
+  sendHtml conn $ chooseRole state player
 
 addPlayerIdCookie :: (AddHeader [Optional, Strict] h Text orig new) => PlayerId -> orig -> new
 addPlayerIdCookie (PlayerId playerId) =

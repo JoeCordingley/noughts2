@@ -192,13 +192,9 @@ instance FromJSON MoveKey
 chooseRoleNoughts :: ChooseRoleHtml NoughtOrCross
 chooseRoleNoughts = undefined
 
-gameServerDependencies :: IO (GameServerDependencies NoughtOrCross)
+gameServerDependencies :: GameServerDependencies NoughtOrCross
 gameServerDependencies =
-  GameServerDependencies
-    <$> pure "noughts"
-    <*> pure playNoughts
-    <*> pure isReadyNoughts
-    <*> pure chooseRoleNoughts
+  GameServerDependencies "noughts" playNoughts isReadyNoughts chooseRoleNoughts
 
 playNoughts :: Map NoughtOrCross PlayerId -> IO ()
 playNoughts playerMap = undefined

@@ -55,7 +55,7 @@ instance (FromJSON a) => FromJSON (PositionChoice a)
 
 instance (ToJSON a) => ToJSON (PositionChoice a)
 
-type ChooseRoleHtml a = Map a (PlayerId, Name) -> PlayerId -> Text
+type ChooseRoleHtml a = Map a (PlayerId, Name) -> PlayerId -> (Html ())
 
 instance FromJSON NoughtOrCross
 
@@ -65,5 +65,5 @@ data GameServerDependencies a = GameServerDependencies
   { name :: Text,
     playGame :: Map a PlayerId -> IO (),
     isReady :: Map a PlayerId -> Bool,
-    chooseRole :: Map a (PlayerId, Name) -> PlayerId -> Text
+    chooseRole :: Map a (PlayerId, Name) -> PlayerId -> (Html ())
   }
