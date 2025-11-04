@@ -14,6 +14,8 @@ import Control.Concurrent (forkIO)
 import Control.Concurrent.Async (cancel, withAsync)
 import Control.Concurrent.STM
 import Data.Aeson (FromJSON, decode)
+import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.Composition ((.:))
 import qualified Data.Map as Map
 import qualified Data.Text.Encoding as TE
@@ -30,12 +32,13 @@ import Noughts.Game (Game)
 import Servant
 import Servant.API.ContentTypes.Lucid (HTML)
 import Servant.API.WebSocket (WebSocket)
+import Servant.Server.StaticFiles (serveDirectoryWebApp)
 import Text.StringRandom (stringRandomIO)
 import Tigris.Api (Dynasty)
 import qualified Tigris.Api as Tigris
-import Web.Cookie (parseCookiesText)
+import Web.Cookie (defaultSetCookie, parseCookiesText, renderSetCookie, sameSiteLax, setCookieHttpOnly, setCookieName, setCookiePath, setCookieSameSite, setCookieValue)
 
-type Api = ("noughts" :> GameApi :<|> "tigris" :> GameApi)
+type Api = "noughts" :> GameApi :<|> "tigris" :> GameApi :<|> "static" :> Raw
 
 type GameApi = PagesApi :<|> "api" :> ActionsApi
 
@@ -71,8 +74,8 @@ paths :: Text -> Paths
 paths game =
   Paths
     { getGamePath = \id -> "/" <> game <> "/" <> gameId id,
-      getJoinGamePath = \id -> "/api/" <> game <> "/" <> gameId id <> "/join",
-      getPlayPath = \id -> "/api/" <> game <> "/" <> gameId id <> "/play"
+      getJoinGamePath = \id -> "/" <> game <> "/api/" <> gameId id <> "/join",
+      getPlayPath = \id -> "/" <> game <> "/api/" <> gameId id <> "/play"
     }
 
 startGameServer :: (FromJSON a, Ord a, Show a) => GameServerDependencies a -> IO (Server GameApi)
@@ -92,7 +95,9 @@ actions hostGame chooseRole gameMap = Actions {createGame, newPlayerId, getGame}
     getGame gameId = (fmap (table chooseRole) . Map.lookup gameId) <$> readTVarIO gameMap
 
 startServer :: IO (Server Api)
-startServer = (:<|>) <$> (startGameServer =<< Noughts.gameServerDependencies) <*> (startGameServer =<< Tigris.gameServerDependencies)
+startServer = joinHandlers <$> (startGameServer =<< Noughts.gameServerDependencies) <*> (startGameServer =<< Tigris.gameServerDependencies)
+  where
+    joinHandlers noughts tigris = noughts :<|> tigris :<|> serveDirectoryWebApp "static"
 
 seatPlayers :: (Ord a) => (Map a PlayerId -> Bool) -> GameTVars a -> IO (Map a PlayerId)
 seatPlayers isReady game = firstNotification startingState >>= setupGameSTM isReady (receiveMsg $ playerInputs game) notify
@@ -246,7 +251,23 @@ sendLoop chooseRole queue conn player = forever $ do
   sendTextData conn $ chooseRole state player
 
 addPlayerIdCookie :: (AddHeader [Optional, Strict] h Text orig new) => PlayerId -> orig -> new
-addPlayerIdCookie (PlayerId playerId) = addHeader (cookie playerIdKey playerId)
+addPlayerIdCookie (PlayerId playerId) =
+  addHeader (cookieText playerIdKey playerId)
+
+cookieText :: Text -> Text -> Text
+cookieText key value =
+  -- Example: "playerId=abc123; Path=/; HttpOnly; SameSite=Lax"
+  decodeUtf8
+    . BL.toStrict
+    . BB.toLazyByteString
+    . renderSetCookie
+    $ defaultSetCookie
+      { setCookieName = encodeUtf8 key,
+        setCookieValue = encodeUtf8 value,
+        setCookiePath = Just "/",
+        setCookieHttpOnly = True,
+        setCookieSameSite = Just sameSiteLax
+      }
 
 cookie :: Text -> Text -> Text
 cookie key value = key <> "=" <> value
