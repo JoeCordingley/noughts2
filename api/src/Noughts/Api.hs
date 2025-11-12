@@ -194,7 +194,7 @@ chooseRoleNoughts = undefined
 
 gameServerDependencies :: GameServerDependencies NoughtOrCross
 gameServerDependencies =
-  GameServerDependencies "noughts" playNoughts isReadyNoughts chooseRoleNoughts
+  GameServerDependencies Noughts playNoughts isReadyNoughts chooseRoleNoughts
 
 playNoughts :: Map NoughtOrCross PlayerId -> IO ()
 playNoughts playerMap = undefined

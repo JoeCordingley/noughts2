@@ -1,5 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
 module Lib where
@@ -15,6 +17,7 @@ import GHC.Generics (Generic)
 import Lucid.Base (Html, renderText)
 import Network.WebSockets.Connection (Connection, sendTextData, withPingThread)
 import Servant
+import Servant.API.WebSocket (WebSocket)
 
 recursing :: (Monad f) => (a -> f ()) -> (a -> f b) -> a -> f b
 recursing f recurse = (returning f) >=> recurse
@@ -41,6 +44,9 @@ data GameId = GameId {gameId :: Text} deriving (Eq, Show, Ord)
 instance FromHttpApiData GameId where
   parseUrlPiece = Right . GameId
 
+instance ToHttpApiData GameId where
+  toUrlPiece (GameId id) = id
+
 composeMapWithInput :: (Ord a) => Map a b -> Map k a -> Map k (a, b)
 composeMapWithInput = Map.mapMaybe . withInput . flip Map.lookup
   where
@@ -61,9 +67,25 @@ instance FromJSON NoughtOrCross
 
 data NoughtOrCross = Nought | Cross deriving (Eq, Ord, Show, Generic)
 
+data GameKey = Tigris | Noughts
+
+instance FromHttpApiData GameKey where
+  parseUrlPiece value = case value of
+    "tigris" -> Right Tigris
+    "noughts" -> Right Noughts
+    other -> Left $ "invalid game" <> other
+
+instance ToHttpApiData GameKey where
+  toUrlPiece Tigris = "tigris"
+  toUrlPiece Noughts = "noughts"
+
 data GameServerDependencies a = GameServerDependencies
-  { name :: Text,
+  { gameKey :: GameKey,
     playGame :: Map a PlayerId -> IO (),
     isReady :: Map a PlayerId -> Bool,
     chooseRole :: Map a (PlayerId, Name) -> PlayerId -> (Html ())
   }
+
+instance HasLink WebSocket where
+  type MkLink WebSocket a = a
+  toLink f _ segments = f segments

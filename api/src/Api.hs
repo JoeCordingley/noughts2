@@ -4,6 +4,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
@@ -32,25 +33,36 @@ import Noughts.Game (Game)
 import Servant
 import Servant.API.ContentTypes.Lucid (HTML)
 import Servant.API.WebSocket (WebSocket)
+import Servant.Links (safeLink)
 import Servant.Server.StaticFiles (serveDirectoryWebApp)
 import Text.StringRandom (stringRandomIO)
 import Tigris.Api (Dynasty)
 import qualified Tigris.Api as Tigris
 import Web.Cookie (defaultSetCookie, parseCookiesText, renderSetCookie, sameSiteLax, setCookieHttpOnly, setCookieName, setCookiePath, setCookieSameSite, setCookieValue)
 
-type Api = "noughts" :> GameApi :<|> "tigris" :> GameApi :<|> "static" :> Raw
+type WithGame = Capture "game" GameKey
 
-type GameApi = PagesApi :<|> "api" :> ActionsApi
+type WithGameId = Capture "gameId" GameId
 
-type PagesApi =
-  "create" :> Get '[HTML] (Html ()) :<|> Capture "gameId" GameId :> Header "Cookie" Text :> Get '[HTML] GameResponse
+type Api = WithGame :> GameApi :<|> "static" :> Raw
 
-type ActionsApi =
-  "create" :> ReqBody '[FormUrlEncoded] [(Text, Text)] :> Post '[JSON] CreateGameResponse
-    :<|> Capture "gameId" GameId
-      :> ( "join" :> ReqBody '[FormUrlEncoded] [(Text, Text)] :> Post '[HTML] JoinGameResponse
-             :<|> "play" :> Header "Cookie" Text :> WebSocket
+type JoinGameApi = "join" :> ReqBody '[FormUrlEncoded] [(Text, Text)] :> Post '[HTML] JoinGameResponse
+
+type PlayGameApi = "play" :> Header "Cookie" Text :> WebSocket
+
+type CreateGameApi = "create" :> ReqBody '[FormUrlEncoded] [(Text, Text)] :> Post '[JSON] CreateGameResponse
+
+type GameApi =
+  ("create" :> Get '[HTML] (Html ()) :<|> GetGameApi)
+    :<|> "api"
+      :> ( CreateGameApi
+             :<|> WithGameId
+               :> ( JoinGameApi
+                      :<|> PlayGameApi
+                  )
          )
+
+type GetGameApi = Capture "gameId" GameId :> Header "Cookie" Text :> Get '[HTML] GameResponse
 
 type GameResponse = Html ()
 
@@ -67,19 +79,24 @@ runServer = do
 data Paths = Paths
   { getGamePath :: GameId -> Text,
     getJoinGamePath :: GameId -> Text,
-    getPlayPath :: GameId -> Text
+    getPlayPath :: GameId -> Text,
+    createGameApi :: Text
   }
 
-paths :: Text -> Paths
+paths :: GameKey -> Paths
 paths game =
   Paths
-    { getGamePath = \id -> "/" <> game <> "/" <> gameId id,
-      getJoinGamePath = \id -> "/" <> game <> "/api/" <> gameId id <> "/join",
-      getPlayPath = \id -> "/" <> game <> "/api/" <> gameId id <> "/play"
+    { getGamePath = rootUrl . toUrlPiece . apiLink (Proxy @(WithGame :> GetGameApi)),
+      getJoinGamePath = rootUrl . toUrlPiece . apiLink (Proxy @(WithGame :> "api" :> WithGameId :> JoinGameApi)),
+      getPlayPath = rootUrl . toUrlPiece . apiLink (Proxy @(WithGame :> "api" :> WithGameId :> PlayGameApi)),
+      createGameApi = rootUrl . toUrlPiece $ apiLink (Proxy @(WithGame :> "api" :> CreateGameApi))
     }
+  where
+    rootUrl = ("/" <>)
+    apiLink api = safeLink (Proxy @Api) api game
 
 startGameServer :: (FromJSON a, Ord a, Show a) => GameServerDependencies a -> IO (Server GameApi)
-startGameServer (GameServerDependencies {name, playGame, isReady, chooseRole}) = actionsApi (responses $ paths name) . actions hostGame chooseRole <$> newTVarIO Map.empty
+startGameServer (GameServerDependencies {gameKey, playGame, isReady, chooseRole}) = actionsApi (responses $ paths gameKey) . actions hostGame chooseRole <$> newTVarIO Map.empty
   where
     hostGame = seatPlayers isReady >=> playGame
 
@@ -97,7 +114,10 @@ actions hostGame chooseRole gameMap = Actions {createGame, newPlayerId, getGame}
 startServer :: IO (Server Api)
 startServer = joinHandlers <$> (startGameServer Noughts.gameServerDependencies) <*> (startGameServer Tigris.gameServerDependencies)
   where
-    joinHandlers noughts tigris = noughts :<|> tigris :<|> serveDirectoryWebApp "static"
+    joinHandlers noughts tigris = serveGames :<|> serveDirectoryWebApp "static"
+      where
+        serveGames Tigris = tigris
+        serveGames Noughts = noughts
 
 seatPlayers :: (Ord a) => (Map a PlayerId -> Bool) -> GameTVars a -> IO (Map a PlayerId)
 seatPlayers isReady game = firstNotification startingState >>= setupGameSTM isReady (receiveMsg $ playerInputs game) notify
@@ -132,14 +152,11 @@ actionsApi (Responses {createGamePage, createGameResponse, knownPlayerResponse, 
     gameHandler id = withGame id . const . gameHandler'
       where
         gameHandler' maybeCookies = do
-          liftIO $ putStrLn "handling game page"
-          liftIO $ putStrLn $ tshow maybeCookies
           return . bool (unknownPlayerResponse id) (knownPlayerResponse id) . isJust $ playerIdCookie =<< maybeCookies
     gameHomeHandler = return createGamePage
     createGameHandler = maybe (throwError err400) (liftIO . handleCreateGame) . lookup "name"
       where
         handleCreateGame name = do
-          liftIO $ putStrLn "creating"
           playerId <- newPlayerId
           gameId <- createGame $ Player playerId name
           return $ createGameResponse gameId playerId
@@ -177,16 +194,17 @@ htmxPage content = html_ $ do
     meta_ [charset_ "utf-8"]
     meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
     script_ [src_ "https://unpkg.com/htmx.org@2.0.4"] ("" :: Text)
+    link_ [rel_ "stylesheet", href_ "/static/css/dynasty.css"]
     script_ [src_ "https://unpkg.com/htmx.org@1.9.12/dist/ext/ws.js"] ("" :: Text)
   body_ content
 
 responses :: Paths -> Responses
-responses (Paths {getGamePath, getPlayPath, getJoinGamePath}) = Responses {createGameResponse, knownPlayerResponse, unknownPlayerResponse, joinGameResponse, createGamePage}
+responses (Paths {getGamePath, getPlayPath, getJoinGamePath, createGameApi}) = Responses {createGameResponse, knownPlayerResponse, unknownPlayerResponse, joinGameResponse, createGamePage}
   where
     createGamePage :: Html ()
     createGamePage = htmxPage $ div_ [] $ do
       h1_ "Tigers and Pots"
-      form_ [term "hx-post" "/tigris/api/create", term "hx-target" "body"] $ do
+      form_ [term "hx-post" createGameApi, term "hx-target" "body"] $ do
         label_ [for_ "player-name"] "Your name :"
         input_ [id_ "name", name_ "name", type_ "text", term "required" ""]
         button_ [type_ "submit"] "Create Game"

@@ -29,7 +29,7 @@ instance ToJSON Dynasty
 
 gameServerDependencies :: GameServerDependencies Dynasty
 gameServerDependencies =
-  GameServerDependencies "tigris" play atLeastTwo chooseDynasty
+  GameServerDependencies Tigris play atLeastTwo chooseDynasty
 
 atLeastTwo :: Map Dynasty a -> Bool
 atLeastTwo playerMap = Map.size playerMap >= 2
@@ -57,10 +57,4 @@ chooseDynasty playerMap player =
         (isTaken, isMine, status) = case Map.lookup dynasty playerMap of
           Just (id, name) -> (True, id == player, "Player: " <> name)
           Nothing -> (False, False, "Available")
-        jsonVal = encodeToText $ DynastyChoice dynasty
-
-data DynastyChoice = DynastyChoice {dynasty :: Dynasty} deriving (Generic)
-
-instance ToJSON DynastyChoice
-
-instance FromJSON DynastyChoice
+        jsonVal = encodeToText $ PositionChoice dynasty
