@@ -15,11 +15,8 @@ import Control.Concurrent (forkIO)
 import Control.Concurrent.Async (cancel, withAsync)
 import Control.Concurrent.STM
 import Data.Aeson (FromJSON, decode)
-import qualified Data.ByteString.Builder as BB
-import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.Composition ((.:))
 import qualified Data.Map as Map
-import qualified Data.Text.Encoding as TE
 import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
 import Lib
@@ -38,7 +35,7 @@ import Servant.Server.StaticFiles (serveDirectoryWebApp)
 import Text.StringRandom (stringRandomIO)
 import Tigris.Api (Dynasty)
 import qualified Tigris.Api as Tigris
-import Web.Cookie (defaultSetCookie, parseCookiesText, renderSetCookie, sameSiteLax, setCookieHttpOnly, setCookieName, setCookiePath, setCookieSameSite, setCookieValue)
+import Web.Cookie (parseCookiesText)
 
 type WithGame = Capture "game" GameKey
 
@@ -249,10 +246,6 @@ data Table = Table {addPlayer :: Player -> IO (), connectGame :: PlayerId -> Con
 playerIdCookie :: Text -> Maybe PlayerId
 playerIdCookie = fmap PlayerId . getCookie playerIdKey
 
-getCookie :: Text -> Text -> Maybe Text
-getCookie key =
-  lookup key . parseCookiesText . TE.encodeUtf8
-
 readLoop :: (FromJSON a, Show a) => Connection -> TQueue (PositionChoice a) -> IO ()
 readLoop conn queue = forever $ do
   msg <- receiveData conn
@@ -272,24 +265,6 @@ sendLoop chooseRole queue conn player = forever $ do
 addPlayerIdCookie :: (AddHeader [Optional, Strict] h Text orig new) => PlayerId -> orig -> new
 addPlayerIdCookie (PlayerId playerId) =
   addHeader (cookieText playerIdKey playerId)
-
-cookieText :: Text -> Text -> Text
-cookieText key value =
-  -- Example: "playerId=abc123; Path=/; HttpOnly; SameSite=Lax"
-  decodeUtf8
-    . BL.toStrict
-    . BB.toLazyByteString
-    . renderSetCookie
-    $ defaultSetCookie
-      { setCookieName = encodeUtf8 key,
-        setCookieValue = encodeUtf8 value,
-        setCookiePath = Just "/",
-        setCookieHttpOnly = True,
-        setCookieSameSite = Just sameSiteLax
-      }
-
-cookie :: Text -> Text -> Text
-cookie key value = key <> "=" <> value
 
 playerIdKey :: Text
 playerIdKey = "playerId"

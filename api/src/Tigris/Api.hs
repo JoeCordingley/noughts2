@@ -8,7 +8,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
-module Tigris.Api (Dynasty, chooseDynasty, isReady, play, gameServerDependencies, homePage) where
+module Tigris.Api (Dynasty, gameServerDependencies) where
 
 import BasicPrelude
 import Data.Aeson (FromJSON, ToJSON)
@@ -37,9 +37,6 @@ atLeastTwo playerMap = Map.size playerMap >= 2
 play :: Map Dynasty PlayerId -> IO ()
 play = undefined
 
-homePage :: Html ()
-homePage = undefined
-
 chooseDynasty :: Map Dynasty (PlayerId, Name) -> PlayerId -> Html ()
 chooseDynasty playerMap player =
   div_ [id_ "board"] $ do
@@ -47,12 +44,13 @@ chooseDynasty playerMap player =
     div_ [class_ "dynasty-grid"]
       $ forM_ [Archer, Bull, Pot, Lion]
       $ dynastyDiv
+    when (atLeastTwo playerMap) $ button_ [class_ "start-game action", term "hx-vals" $ encodeToText (StartGame :: PositionChoice Dynasty)] "Start Game"
   where
     dynastyDiv :: Dynasty -> Html ()
     dynastyDiv dynasty = div_ ([class_ "dynasty-box"] ++ if isMine then [class_ "mine"] else []) $ do
       strong_ . toHtml $ show dynasty
       small_ $ toHtml status
-      unless isTaken $ button_ [class_ "dynasty", term "hx-vals" jsonVal, term "ws-send" mempty] "Choose"
+      span_ [class_ "button-area"] $ unless isTaken $ button_ [class_ "dynasty action", term "hx-vals" jsonVal, term "ws-send" mempty] "Choose"
       where
         (isTaken, isMine, status) = case Map.lookup dynasty playerMap of
           Just (id, name) -> (True, id == player, "Player: " <> name)
