@@ -35,7 +35,7 @@ atLeastTwo :: Map Dynasty a -> Bool
 atLeastTwo playerMap = Map.size playerMap >= 2
 
 play :: Map Dynasty PlayerId -> IO ()
-play = undefined
+play m = putStrLn $ "playing: " <> tshow m
 
 chooseDynasty :: Map Dynasty (PlayerId, Name) -> PlayerId -> Html ()
 chooseDynasty playerMap player =
@@ -44,8 +44,9 @@ chooseDynasty playerMap player =
     div_ [class_ "dynasty-grid"]
       $ forM_ [Archer, Bull, Pot, Lion]
       $ dynastyDiv
-    when (atLeastTwo playerMap) $ button_ [class_ "start-game action", term "hx-vals" $ encodeToText (StartGame :: PositionChoice Dynasty)] "Start Game"
+    when (atLeastTwo playerMap) $ button_ [class_ "start-game action", term "hx-vals" jsonVal, term "ws-send" mempty] "Start Game"
   where
+    jsonVal = encodeToText (StartGame :: PositionChoice Dynasty)
     dynastyDiv :: Dynasty -> Html ()
     dynastyDiv dynasty = div_ ([class_ "dynasty-box"] ++ if isMine then [class_ "mine"] else []) $ do
       strong_ . toHtml $ show dynasty

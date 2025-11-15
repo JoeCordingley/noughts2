@@ -94,8 +94,8 @@ instance HasLink WebSocket where
   type MkLink WebSocket a = a
   toLink f _ segments = f segments
 
-cookieText :: Text -> Text -> Text
-cookieText key value =
+cookieText :: Text -> Text -> Text -> Text
+cookieText path key value =
   -- Example: "playerId=abc123; Path=/; HttpOnly; SameSite=Lax"
   decodeUtf8
     . BL.toStrict
@@ -104,7 +104,7 @@ cookieText key value =
     $ defaultSetCookie
       { setCookieName = encodeUtf8 key,
         setCookieValue = encodeUtf8 value,
-        setCookiePath = Just "/",
+        setCookiePath = Just $ encodeUtf8 path,
         setCookieHttpOnly = True,
         setCookieSameSite = Just sameSiteLax
       }

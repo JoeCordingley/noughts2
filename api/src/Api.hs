@@ -47,19 +47,21 @@ type JoinGameApi = "join" :> ReqBody '[FormUrlEncoded] [(Text, Text)] :> Post '[
 
 type PlayGameApi = "play" :> Header "Cookie" Text :> WebSocket
 
-type CreateGameApi = "create" :> ReqBody '[FormUrlEncoded] [(Text, Text)] :> Post '[JSON] CreateGameResponse
+type CreateGameApi = ("create" :> Get '[HTML] (Html ()) :<|> CreateGameApiPost)
+
+type CreateGameApiPost = "create" :> ReqBody '[FormUrlEncoded] [(Text, Text)] :> Post '[JSON] CreateGameResponse
 
 type GameApi =
-  ("create" :> Get '[HTML] (Html ()) :<|> GetGameApi)
-    :<|> "api"
-      :> ( CreateGameApi
-             :<|> WithGameId
-               :> ( JoinGameApi
+  ( CreateGameApi
+      :<|> ( WithGameId
+               :> ( GetGameApi
+                      :<|> JoinGameApi
                       :<|> PlayGameApi
                   )
-         )
+           )
+  )
 
-type GetGameApi = Capture "gameId" GameId :> Header "Cookie" Text :> Get '[HTML] GameResponse
+type GetGameApi = Header "Cookie" Text :> Get '[HTML] GameResponse
 
 type GameResponse = Html ()
 
@@ -83,10 +85,10 @@ data Paths = Paths
 paths :: GameKey -> Paths
 paths game =
   Paths
-    { getGamePath = rootUrl . toUrlPiece . apiLink (Proxy @(WithGame :> GetGameApi)),
-      getJoinGamePath = rootUrl . toUrlPiece . apiLink (Proxy @(WithGame :> "api" :> WithGameId :> JoinGameApi)),
-      getPlayPath = rootUrl . toUrlPiece . apiLink (Proxy @(WithGame :> "api" :> WithGameId :> PlayGameApi)),
-      createGameApi = rootUrl . toUrlPiece $ apiLink (Proxy @(WithGame :> "api" :> CreateGameApi))
+    { getGamePath = rootUrl . toUrlPiece . apiLink (Proxy @(WithGame :> WithGameId :> GetGameApi)),
+      getJoinGamePath = rootUrl . toUrlPiece . apiLink (Proxy @(WithGame :> WithGameId :> JoinGameApi)),
+      getPlayPath = rootUrl . toUrlPiece . apiLink (Proxy @(WithGame :> WithGameId :> PlayGameApi)),
+      createGameApi = rootUrl . toUrlPiece $ apiLink (Proxy @(WithGame :> CreateGameApiPost))
     }
   where
     rootUrl = ("/" <>)
@@ -117,8 +119,10 @@ startServer = joinHandlers <$> (startGameServer Noughts.gameServerDependencies) 
         serveGames Noughts = noughts
 
 seatPlayers :: (Ord a) => (Map a PlayerId -> Bool) -> GameTVars a -> IO (Map a PlayerId)
-seatPlayers isReady game = firstNotification startingState >>= setupGameSTM isReady (receiveMsg $ playerInputs game) notify
+seatPlayers isReady game = setupGameSTM startingState
   where
+    receive = receiveMsg $ playerInputs game
+    setupGameSTM = updateWithNotify (setupGame isReady receive (pure . pure)) notify
     startingState = Map.empty
     firstNotification = atomically . returning notify
     notify = withNames >=> notifyPlayers
@@ -143,23 +147,21 @@ receiveMsg = readTVar >=> nextPlayerMessage
 data Actions = Actions {createGame :: Player -> IO GameId, newPlayerId :: IO PlayerId, getGame :: GameId -> IO (Maybe Table)}
 
 actionsApi :: Responses -> Actions -> Server GameApi
-actionsApi (Responses {createGamePage, createGameResponse, knownPlayerResponse, unknownPlayerResponse, joinGameResponse}) (Actions {createGame, newPlayerId, getGame}) = (gameHomeHandler :<|> gameHandler) :<|> (createGameHandler :<|> gameEndpoints)
+actionsApi (Responses {createGamePage, createGameResponse, knownPlayerResponse, unknownPlayerResponse, joinGameResponse}) (Actions {createGame, newPlayerId, getGame}) = (gameHomeHandler :<|> createGameHandler) :<|> gameEndpoints
   where
-    withGame id f = maybe (throwError err400) f =<< (liftIO $ getGame id)
-    gameHandler id = withGame id . const . gameHandler'
-      where
-        gameHandler' maybeCookies = do
-          return . bool (unknownPlayerResponse id) (knownPlayerResponse id) . isJust $ playerIdCookie =<< maybeCookies
     gameHomeHandler = return createGamePage
     createGameHandler = maybe (throwError err400) (liftIO . handleCreateGame) . lookup "name"
       where
         handleCreateGame name = do
           playerId <- newPlayerId
+          putStrLn $ "new player id: " <> tshow playerId
           gameId <- createGame $ Player playerId name
           return $ createGameResponse gameId playerId
-    gameEndpoints id = withGame' . joinGameHandler :<|> withGame' .: playGameHandler
+    gameEndpoints id = withGame . const . gameHandler :<|> withGame . joinGameHandler :<|> withGame .: playGameHandler
       where
-        withGame' = withGame id
+        gameHandler maybeCookies = do
+          return . bool (unknownPlayerResponse id) (knownPlayerResponse id) . isJust $ playerIdCookie =<< maybeCookies
+        withGame f = maybe (throwError err400) f =<< (liftIO $ getGame id)
         joinGameHandler formData game =
           maybe (throwError err400) (return . joinGameResponse id)
             =<< liftIO (traverse joinGame $ lookup "name" formData)
@@ -170,7 +172,11 @@ actionsApi (Responses {createGamePage, createGameResponse, knownPlayerResponse, 
               return playerId
         playGameHandler maybeCookies conn game =
           maybe (throwError err400) return
-            =<< liftIO (traverse connect $ maybeCookies >>= playerIdCookie)
+            =<< liftIO
+              ( do
+                  putStrLn $ "cookies: " <> tshow maybeCookies
+                  traverse connect $ maybeCookies >>= playerIdCookie
+              )
           where
             connect playerId = connectGame game playerId conn
 
@@ -192,7 +198,7 @@ htmxPage content = html_ $ do
     meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
     script_ [src_ "https://unpkg.com/htmx.org@2.0.4"] ("" :: Text)
     link_ [rel_ "stylesheet", href_ "/static/css/dynasty.css"]
-    script_ [src_ "https://unpkg.com/htmx.org@1.9.12/dist/ext/ws.js"] ("" :: Text)
+    script_ [src_ "https://unpkg.com/htmx.org@2.0.4/dist/ext/ws.js"] ("" :: Text)
   body_ content
 
 responses :: Paths -> Responses
@@ -206,7 +212,7 @@ responses (Paths {getGamePath, getPlayPath, getJoinGamePath, createGameApi}) = R
         input_ [id_ "name", name_ "name", type_ "text", term "required" ""]
         button_ [type_ "submit"] "Create Game"
     createGameResponse gameId playerId =
-      addHeader (getGamePath gameId) $ addPlayerIdCookie playerId NoContent
+      addHeader (getGamePath gameId) $ addPlayerIdCookie (getGamePath gameId) playerId NoContent
     websocketDiv :: GameId -> Html ()
     websocketDiv id = div_ [id_ "game", term "hx-ext" "ws", term "ws-connect" (getPlayPath id)] $ div_ [id_ "board"] $ return ()
     knownPlayerResponse = htmxPage . websocketDiv
@@ -214,7 +220,7 @@ responses (Paths {getGamePath, getPlayPath, getJoinGamePath, createGameApi}) = R
     unknownPlayerResponse id = htmxPage $ form_ [term "hx-post" $ getJoinGamePath id] $ do
       input_ [id_ "name", name_ "name", type_ "text"]
       button_ [type_ "submit"] "Join"
-    joinGameResponse gameId playerId = addPlayerIdCookie playerId (websocketDiv gameId)
+    joinGameResponse gameId playerId = addPlayerIdCookie (getGamePath gameId) playerId (websocketDiv gameId)
 
 table :: (FromJSON a, Show a) => ChooseRoleHtml a -> GameTVars a -> Table
 table chooseRole tvars = Table {addPlayer, connectGame}
@@ -257,14 +263,15 @@ readLoop conn queue = forever $ do
     Nothing -> do
       return () -- Handle decoding failure
 
-sendLoop :: ChooseRoleHtml a -> TQueue (Map a (PlayerId, Name)) -> Connection -> PlayerId -> IO ()
+sendLoop :: (Show a) => ChooseRoleHtml a -> TQueue (Map a (PlayerId, Name)) -> Connection -> PlayerId -> IO ()
 sendLoop chooseRole queue conn player = forever $ do
   state <- atomically $ readTQueue queue
+  putStrLn $ "sending" <> tshow state
   sendHtml conn $ chooseRole state player
 
-addPlayerIdCookie :: (AddHeader [Optional, Strict] h Text orig new) => PlayerId -> orig -> new
-addPlayerIdCookie (PlayerId playerId) =
-  addHeader (cookieText playerIdKey playerId)
+addPlayerIdCookie :: (AddHeader [Optional, Strict] h Text orig new) => Text -> PlayerId -> orig -> new
+addPlayerIdCookie path (PlayerId playerId) =
+  addHeader (cookieText path playerIdKey playerId)
 
 playerIdKey :: Text
 playerIdKey = "playerId"
@@ -278,8 +285,8 @@ generateId = stringRandomIO "[a-zA-Z0-9]{5}"
 generateGameId :: IO GameId
 generateGameId = GameId <$> generateId
 
-setupGameSTM :: (Ord a) => (Map a PlayerId -> Bool) -> STM (SetupMessage a) -> (Map a PlayerId -> STM ()) -> Map a PlayerId -> IO (Map a PlayerId)
-setupGameSTM isReady receive notify = fixAtomically $ setupGame isReady receive (pure . pure) . notifying
+updateWithNotify :: ((a -> STM (IO b)) -> a -> STM (IO b)) -> (a -> STM ()) -> a -> IO b
+updateWithNotify update notify = (fixAtomically $ update . notifying) <=< returning (atomically . notify)
   where
     notifying recurse = returning notify >=> recurse
 
