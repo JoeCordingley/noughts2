@@ -11,30 +11,20 @@
 module Api (runServer) where
 
 import BasicPrelude hiding (for_)
-import Control.Concurrent (forkIO)
-import Control.Concurrent.Async (cancel, withAsync)
-import Control.Concurrent.STM
-import Data.Aeson (FromJSON, decode)
+import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.Composition ((.:))
-import qualified Data.Map as Map
-import GHC.Conc (threadDelay)
-import GHC.Generics (Generic)
+import qualified Data.Text.Encoding as TE
 import Lib
 import Lucid (term)
-import Lucid.Base (Html, termRaw)
+import Lucid.Base (Html)
 import Lucid.Html5
 import Network.Wai.Handler.Warp (run)
-import Network.WebSockets.Connection (Connection, receiveData, sendTextData)
-import qualified Noughts.Api as Noughts
-import Noughts.Game (Game)
 import Servant
 import Servant.API.ContentTypes.Lucid (HTML)
 import Servant.API.WebSocket (WebSocket)
-import Servant.Links (safeLink)
-import Servant.Server.StaticFiles (serveDirectoryWebApp)
-import Tigris.Api (Dynasty)
 import qualified Tigris.Api as Tigris
-import Web.Cookie (parseCookiesText)
+import Web.Cookie
 
 type WithGame = Capture "game" GameKey
 
@@ -133,9 +123,7 @@ actionsApi (Responses {createGamePage, createGameResponse, knownPlayerResponse, 
             =<< liftIO maybeConnectPlayer
           where
             connect player = connectGame game player conn
-            maybeConnectPlayer = do
-              names <- tablePlayers game
-              traverse connect $ flip Map.lookup names =<< playerIdCookie =<< maybeCookies
+            maybeConnectPlayer = traverse connect . join =<< (traverse (tablePlayers game) $ playerIdCookie =<< maybeCookies)
 
 data Responses = Responses
   { createGameResponse :: GameId -> PlayerId -> CreateGameResponse,
@@ -151,9 +139,9 @@ htmxPage content = html_ $ do
     title_ "Tigers and Pots"
     meta_ [charset_ "utf-8"]
     meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
-    script_ [src_ "https://unpkg.com/htmx.org@2.0.4"] ("" :: Text)
+    script_ [src_ "https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js"] ("" :: Text)
+    script_ [src_ "https://cdn.jsdelivr.net/npm/htmx-ext-ws@2.0.4"] ("" :: Text)
     link_ [rel_ "stylesheet", href_ "/static/css/dynasty.css"]
-    script_ [src_ "https://unpkg.com/htmx.org@2.0.4/dist/ext/ws.js"] ("" :: Text)
   body_ content
 
 responses :: Paths -> Responses
@@ -177,23 +165,23 @@ responses (Paths {getGamePath, getPlayPath, getJoinGamePath, createGameApi}) = R
       button_ [type_ "submit"] "Join"
     joinGameResponse gameId playerId = addPlayerIdCookie (getGamePath gameId) playerId (websocketDiv gameId)
 
--- data GameTVars a = GameTVars
---  { latestState :: TVar (Map a (PlayerId, Name)),
---    playerOutputs :: TVar [Map a (PlayerId, Name) -> STM ()],
---    playerInputs :: TVar [(PlayerId, STM (PositionChoice a))],
---    playerNames :: TVar (Map PlayerId Name),
---    waitForFinish :: IO ()
---  }
--- data GameTVars input output = GameTVars
---  { latestState :: TVar output,
---    playerOutputs :: TVar [output -> STM ()],
---    playerInputs :: TVar [(PlayerId, STM input)],
---    playerNames :: TVar (Map PlayerId Name),
---    waitForFinish :: IO ()
---  }
-
 playerIdCookie :: Text -> Maybe PlayerId
 playerIdCookie = fmap PlayerId . getCookie playerIdKey
+
+cookieText :: Text -> Text -> Text -> Text
+cookieText path key value =
+  -- Example: "playerId=abc123; Path=/; HttpOnly; SameSite=Lax"
+  decodeUtf8
+    . BL.toStrict
+    . BB.toLazyByteString
+    . renderSetCookie
+    $ defaultSetCookie
+      { setCookieName = encodeUtf8 key,
+        setCookieValue = encodeUtf8 value,
+        setCookiePath = Just $ encodeUtf8 path,
+        setCookieHttpOnly = True,
+        setCookieSameSite = Just sameSiteLax
+      }
 
 addPlayerIdCookie :: (AddHeader [Optional, Strict] h Text orig new) => Text -> PlayerId -> orig -> new
 addPlayerIdCookie path (PlayerId playerId) =
@@ -201,3 +189,7 @@ addPlayerIdCookie path (PlayerId playerId) =
 
 playerIdKey :: Text
 playerIdKey = "playerId"
+
+getCookie :: Text -> Text -> Maybe Text
+getCookie key =
+  lookup key . parseCookiesText . TE.encodeUtf8

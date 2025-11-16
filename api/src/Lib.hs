@@ -13,20 +13,16 @@ import Control.Concurrent.Async (cancel, withAsync)
 import Control.Concurrent.STM (STM, TQueue, TVar, atomically, modifyTVar, modifyTVar', newTQueueIO, newTVar, readTQueue, readTVar, readTVarIO, writeTQueue, writeTVar)
 import Data.Aeson (FromJSON, ToJSON, decode)
 import Data.Aeson.Text (encodeToLazyText)
-import qualified Data.ByteString.Builder as BB
-import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.Function (fix)
 import qualified Data.Map as Map
-import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
 import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
-import Lucid.Base (Html, ToHtml, renderText)
+import Lucid.Base (Html, renderText)
 import Network.WebSockets.Connection (Connection, receiveData, sendTextData, withPingThread)
 import Servant
 import Servant.API.WebSocket (WebSocket)
 import Text.StringRandom (stringRandomIO)
-import Web.Cookie
 
 generateGameId :: IO GameId
 generateGameId = GameId <$> generateId
@@ -103,7 +99,7 @@ data GameServerDependencies = GameServerDependencies
 
 data Actions = Actions {createGame :: Player -> IO GameId, newPlayerId :: IO PlayerId, getGame :: GameId -> IO (Maybe Table)}
 
-data Table = Table {addPlayer :: Player -> IO (), connectGame :: Player -> Connection -> IO (), tablePlayers :: IO (Map PlayerId Player)}
+data Table = Table {addPlayer :: Player -> IO (), connectGame :: Player -> Connection -> IO (), tablePlayers :: PlayerId -> IO (Maybe Player)}
 
 data Player = Player {playerId :: PlayerId, playerName :: Name} deriving (Show, Eq)
 
@@ -114,25 +110,6 @@ type UnfixedSetup s = Unfixed s (STM (IO s))
 instance HasLink WebSocket where
   type MkLink WebSocket a = a
   toLink f _ segments = f segments
-
-cookieText :: Text -> Text -> Text -> Text
-cookieText path key value =
-  -- Example: "playerId=abc123; Path=/; HttpOnly; SameSite=Lax"
-  decodeUtf8
-    . BL.toStrict
-    . BB.toLazyByteString
-    . renderSetCookie
-    $ defaultSetCookie
-      { setCookieName = encodeUtf8 key,
-        setCookieValue = encodeUtf8 value,
-        setCookiePath = Just $ encodeUtf8 path,
-        setCookieHttpOnly = True,
-        setCookieSameSite = Just sameSiteLax
-      }
-
-getCookie :: Text -> Text -> Maybe Text
-getCookie key =
-  lookup key . parseCookiesText . TE.encodeUtf8
 
 data GameTVars state input = GameTVars
   { latestState :: TVar state,
@@ -177,7 +154,7 @@ table :: (Show input, FromJSON input, Show state) => (Player -> state -> Html ()
 table playerView tvars = Table {addPlayer, connectGame, tablePlayers}
   where
     addPlayer player = atomically $ addPlayerSTM player tvars
-    tablePlayers = atomically . readTVar $ playerNames tvars
+    tablePlayers id = atomically . fmap (Map.lookup id) . readTVar $ playerNames tvars
     connectGame player connection = do
       putStrLn "connected"
       outputQueue <- newTQueueIO
