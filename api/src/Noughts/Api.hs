@@ -20,7 +20,7 @@ import Data.Semigroup
 import qualified Data.Text.Lazy as TL
 import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
-import Lib
+import Lib hiding (Player)
 import Lucid (term)
 import Lucid.Base (Attributes, Html, renderText)
 import Lucid.Html5
@@ -192,9 +192,10 @@ instance FromJSON MoveKey
 chooseRoleNoughts :: ChooseRoleHtml NoughtOrCross
 chooseRoleNoughts = undefined
 
-gameServerDependencies :: GameServerDependencies NoughtOrCross
-gameServerDependencies =
-  GameServerDependencies Noughts playNoughts isReadyNoughts chooseRoleNoughts
+gameServerDependencies :: GameServerDependencies
+gameServerDependencies = GameServerDependencies Noughts undefined
+
+-- GameServerDependencies Noughts playNoughts isReadyNoughts chooseRoleNoughts
 
 playNoughts :: Map NoughtOrCross PlayerId -> IO ()
 playNoughts playerMap = undefined

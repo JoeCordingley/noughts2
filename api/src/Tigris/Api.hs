@@ -11,6 +11,7 @@
 module Tigris.Api (Dynasty, gameServerDependencies) where
 
 import BasicPrelude
+import Control.Concurrent.STM (STM, TVar, newTVarIO, orElse, readTVar, retry)
 import Data.Aeson (FromJSON, ToJSON)
 import qualified Data.Map as Map
 import GHC.Generics (Generic)
@@ -27,18 +28,44 @@ instance FromJSON Dynasty
 
 instance ToJSON Dynasty
 
-gameServerDependencies :: GameServerDependencies Dynasty
-gameServerDependencies =
-  GameServerDependencies Tigris play atLeastTwo chooseDynasty
+gameServerDependencies :: GameServerDependencies
+gameServerDependencies = GameServerDependencies Tigris tigrisActions
+
+tigrisActions :: IO Actions
+tigrisActions = actions (newGame openingState) (setupGame >=> play) (table chooseDynasty) <$> newTVarIO openingState
+  where
+    openingState = Map.empty
+
+setupGame :: GameTVars DynastyMap PlayerSetupMessage -> IO DynastyMap
+setupGame game = seatPlayers game (setup game) Map.empty
+
+setup :: GameTVars DynastyMap PlayerSetupMessage -> (DynastyMap -> STMIO DynastyMap) -> DynastyMap -> STMIO DynastyMap
+setup game = setupGameUnfixed (receiveMsg game) (pure . pure)
+
+setupGameUnfixed :: (Monad m) => m SetupMessage -> (DynastyMap -> m (f DynastyMap)) -> (DynastyMap -> m (f DynastyMap)) -> DynastyMap -> m (f DynastyMap)
+setupGameUnfixed receive end recurse playerMap = do
+  message <- receive
+  case message of
+    TakePosition player position -> recurse $ takePosition playerMap
+      where
+        takePosition = if Map.notMember position playerMap then Map.insert position player . Map.filter (/= player) else id
+    Start -> (if atLeastTwo playerMap then end else recurse) playerMap
+
+type STMIO a = STM (IO a)
+
+receiveMsg :: GameTVars DynastyMap PlayerSetupMessage -> STM SetupMessage
+receiveMsg game = readTVar (playerInputs game) >>= nextPlayerMessage
+  where
+    nextPlayerMessage = foldr orElse retry . map (uncurry $ fmap . setupMessage)
 
 atLeastTwo :: Map Dynasty a -> Bool
 atLeastTwo playerMap = Map.size playerMap >= 2
 
-play :: Map Dynasty PlayerId -> IO ()
+play :: Map Dynasty Player -> IO ()
 play m = putStrLn $ "playing: " <> tshow m
 
-chooseDynasty :: Map Dynasty (PlayerId, Name) -> PlayerId -> Html ()
-chooseDynasty playerMap player =
+chooseDynasty :: Player -> DynastyMap -> Html ()
+chooseDynasty thisPlayer playerMap =
   div_ [id_ "board"] $ do
     h2_ "Choose Your Dynasty"
     div_ [class_ "dynasty-grid"]
@@ -46,7 +73,7 @@ chooseDynasty playerMap player =
       $ dynastyDiv
     when (atLeastTwo playerMap) $ button_ [class_ "start-game action", term "hx-vals" jsonVal, term "ws-send" mempty] "Start Game"
   where
-    jsonVal = encodeToText (StartGame :: PositionChoice Dynasty)
+    jsonVal = encodeToText StartGame
     dynastyDiv :: Dynasty -> Html ()
     dynastyDiv dynasty = div_ ([class_ "dynasty-box"] ++ if isMine then [class_ "mine"] else []) $ do
       strong_ . toHtml $ show dynasty
@@ -54,6 +81,20 @@ chooseDynasty playerMap player =
       span_ [class_ "button-area"] $ unless isTaken $ button_ [class_ "dynasty action", term "hx-vals" jsonVal, term "ws-send" mempty] "Choose"
       where
         (isTaken, isMine, status) = case Map.lookup dynasty playerMap of
-          Just (id, name) -> (True, id == player, "Player: " <> name)
+          Just player -> (True, player == thisPlayer, "Player: " <> playerName player)
           Nothing -> (False, False, "Available")
-        jsonVal = encodeToText $ PositionChoice dynasty
+        jsonVal = encodeToText $ ChooseDynasty dynasty
+
+type DynastyMap = Map Dynasty Player
+
+data SetupMessage = TakePosition Player Dynasty | Start deriving (Generic, Show)
+
+setupMessage :: Player -> PlayerSetupMessage -> SetupMessage
+setupMessage player (ChooseDynasty a) = TakePosition player a
+setupMessage _ StartGame = Start
+
+data PlayerSetupMessage = ChooseDynasty {position :: Dynasty} | StartGame deriving (Generic, Show)
+
+instance FromJSON PlayerSetupMessage
+
+instance ToJSON PlayerSetupMessage
