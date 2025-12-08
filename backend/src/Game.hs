@@ -1,14 +1,15 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TupleSections #-}
 
-module Game (play, GetMove, Board, Result(..), Player(..), Space, Rank(..), File(..), Move(..), legalMoves, PieceType(..), ranks, files, startingBoard) where
+module Game (play, GetMove, Board, Result (..), Player (..), Space, Rank (..), File (..), Move (..), legalMoves, PieceType (..), ranks, files, startingBoard, playMove) where
 
+import Control.Monad (guard)
 import Data.List (singleton)
+import Data.Map (Map, (!))
 import qualified Data.Map as Map
-import Data.Map ((!))
-import Relude
+import Data.Maybe (isNothing, maybeToList)
+import Data.Semigroup (First (..))
 
 data Player
   = White
@@ -20,7 +21,7 @@ data Result
   | Draw
 
 data Status
-  = Playing
+  = Playing Board
   | Finished Result
 
 data EndStatus
@@ -28,9 +29,9 @@ data EndStatus
   | Stalemate
 
 type Board = Map Space Piece
- 
-type Piece
-  = (Player, PieceType) 
+
+type Piece =
+  (Player, PieceType)
 
 data PieceType
   = King
@@ -65,9 +66,19 @@ data Rank
   | Eight
   deriving (Eq, Ord, Enum, Bounded, Show)
 
-data Move = Move {movePiece :: PieceType, fromSpace :: Space, toSpace :: Space, isCapture :: Bool} deriving Eq
+data Move = Move {movePiece :: PieceType, fromSpace :: Space, toSpace :: Space, isCapture :: Bool} deriving (Eq)
 
-data AttackingMove = AttackingMove {attackingPiece:: PieceType, pieceUnderAttack :: PieceType, attackingFrom :: Space, attackingTo :: Space}
+data AttackingMove = AttackingMove {attackingPiece :: PieceType, pieceUnderAttack :: PieceType, attackingFrom :: Space, attackingTo :: Space}
+
+play :: (Monad f) => PlayMove f -> f Result
+play playMove = play' White startingBoard
+  where
+    play' player board = do
+      status <- playMove player board
+      case status of
+        Playing newBoard -> play' (nextPlayer player) newBoard
+        Finished result -> return result
+    nextPlayer = other
 
 startingBoard :: Board
 startingBoard = Map.fromList $ do
@@ -78,29 +89,37 @@ startingBoard = Map.fromList $ do
     pawns = replicate 8 Pawn
     otherPieces = [Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook]
 
+playMove :: (Functor f) => GetMove f -> PlayMove f
+playMove getMove player board = postMoveStatus player . applyMove board <$> getMove player board
+
 type GetMove f = Player -> Board -> f Move
 
-postMoveStatus :: Player -> Board -> Status
-postMoveStatus player board = case finishedStatus of
-  Just Checkmate -> Finished (Winner player)
-  Just Stalemate -> Finished Draw
-  Nothing -> Playing
+type PlayMove f = Player -> Board -> f Status
+
+finishedStatus :: Player -> Board -> Maybe EndStatus
+finishedStatus player board = if null $ legalMoves (other player) board then Just (if kingIsUnderAttack then Checkmate else Stalemate) else Nothing
   where
-    finishedStatus = if noLegalMoves then Just (if kingIsUnderAttack then Checkmate else Stalemate) else Nothing
-    noLegalMoves = null $ legalMoves (other player) board
     kingIsUnderAttack = King `elem` piecesUnderAttack
-    piecesUnderAttack = pieceUnderAttack <$> attackingMoves player board 
+    piecesUnderAttack = pieceUnderAttack <$> attackingMoves player board
+
+result :: Player -> EndStatus -> Result
+result player Checkmate = Winner player
+result _ Stalemate = Draw
+
+postMoveStatus :: Player -> Board -> Status
+postMoveStatus player board = maybe (Playing board) (Finished . result player) $ finishedStatus player board
 
 legalMoves :: Player -> Board -> [Move]
-legalMoves player board = (map toMove (attackingMoves player board) ++ nonAttackingMoves player board) where
-  toMove attackingMove  = Move {movePiece = attackingPiece attackingMove, fromSpace = attackingFrom attackingMove, toSpace = attackingTo attackingMove, isCapture = True}
+legalMoves player board = (map toMove (attackingMoves player board) ++ nonAttackingMoves player board)
+  where
+    toMove attackingMove = Move {movePiece = attackingPiece attackingMove, fromSpace = attackingFrom attackingMove, toSpace = attackingTo attackingMove, isCapture = True}
 
 nonAttackingMoves :: Player -> Board -> [Move]
 nonAttackingMoves player board = do
-  (pieceType, fromSpace) <- pieces player board
+  (pieceType, fromSpace) <- piecePositions player board
   lineOfMovement <- linesOfMovement (player, pieceType) fromSpace
   toSpace <- takeWhile unoccupied lineOfMovement
-  return $ Move {movePiece = pieceType, fromSpace = fromSpace, toSpace=toSpace, isCapture = False}
+  return $ Move {movePiece = pieceType, fromSpace, toSpace, isCapture = False}
   where
     unoccupied space = isNothing $ pieceAt board space
 
@@ -115,7 +134,7 @@ linesOfMovement (player, pieceType) = case pieceType of
 
 attackingMoves :: Player -> Board -> [AttackingMove]
 attackingMoves player board = do
-  (pieceType, fromSpace) <- pieces player board 
+  (pieceType, fromSpace) <- piecePositions player board
   spaces <- linesOfAttack (player, pieceType) fromSpace
   maybeToList $ do
     (toSpace, piece) <- firstJust (fmapSnd $ pieceAt board) spaces
@@ -137,14 +156,23 @@ pawnMoves = traverse . pawnRanks
     pawnRanks Black rank = [pred rank]
 
 pawnAttacks :: Player -> Space -> [Space]
-pawnAttacks player space = filter (pawnAttack space) allSpaces
+pawnAttacks player = pawnAttacks'
   where
-    pawnAttack (f1, r1) (f2, r2) = movementIsOneForward && movementIsOneToTheSide
-      where
-        movementIsOneForward = (rankDiff == 1 && player == White) || (rankDiff == -1 && player == Black)
-        rankDiff = fromEnum r2 - fromEnum r1
-        movementIsOneToTheSide = absFileDiff == 1
-        absFileDiff = abs $ fromEnum f2 - fromEnum f1
+    pawnAttacks' (A, rank) = [(B, advanceOne rank)]
+    pawnAttacks' (H, rank) = [(G, advanceOne rank)]
+    pawnAttacks' (file, rank) = map (,advanceOne rank) [pred file, succ file]
+    advanceOne rank = case player of
+      White -> succ rank
+      Black -> pred rank
+
+-- pawnAttacks player space = filter (pawnAttack space) allSpaces
+--  where
+--    pawnAttack (f1, r1) (f2, r2) = movementIsOneForward && movementIsOneToTheSide
+--      where
+--        movementIsOneForward = (rankDiff == 1 && player == White) || (rankDiff == -1 && player == Black)
+--        rankDiff = fromEnum r2 - fromEnum r1
+--        movementIsOneToTheSide = absFileDiff == 1
+--        absFileDiff = abs $ fromEnum f2 - fromEnum f1
 
 knightMoves :: Space -> [Space]
 knightMoves space = filter (knightMove space) allSpaces
@@ -153,9 +181,9 @@ knightMoves space = filter (knightMove space) allSpaces
       where
         distances' = distances x y
 
-distances
-  :: (Enum a, Enum b) =>
-     (a, b) -> (a, b) -> (Int, Int)
+distances ::
+  (Enum a, Enum b) =>
+  (a, b) -> (a, b) -> (Int, Int)
 distances (a1, b1) (a2, b2) = (a1 `distance` a2, b1 `distance` b2)
   where
     distance x y = abs $ fromEnum x - fromEnum y
@@ -163,7 +191,7 @@ distances (a1, b1) (a2, b2) = (a1 `distance` a2, b1 `distance` b2)
 bishopLines :: Space -> [[Space]]
 bishopLines space = map (lineExtendingFrom space) diagonalDirections
   where
-    diagonalDirections = (,) <$> np <*> np
+    diagonalDirections = (,) <$> [-1, 1] <*> [-1, 1]
 
 queenLines :: Space -> [[Space]]
 queenLines space = bishopLines space ++ rookLines space
@@ -171,7 +199,7 @@ queenLines space = bishopLines space ++ rookLines space
 rookLines :: Space -> [[Space]]
 rookLines space = map (lineExtendingFrom space) orthogonalDirections
   where
-    orthogonalDirections = map (,0) np ++ map (0,) np
+    orthogonalDirections = map (,0) [-1, 1] ++ map (0,) [-1, 1]
 
 kingMoves :: Space -> [Space]
 kingMoves space = filter (kingMove space) allSpaces
@@ -182,8 +210,6 @@ lineExtendingFrom :: Space -> (Int, Int) -> [Space]
 lineExtendingFrom (file, rank) (fileIncrement, rankIncrement) =
   enumFromByIncrement file fileIncrement
     `zip` enumFromByIncrement rank rankIncrement
-
-np = [-1, 1]
 
 enumFromByIncrement :: (Enum a, Bounded a) => a -> Int -> [a]
 enumFromByIncrement a inc = map toEnum [init, init + inc .. fromEnum $ maxBound `asTypeOf` a]
@@ -199,11 +225,11 @@ ranks = [One, Two, Three, Four, Five, Six, Seven, Eight]
 files :: [File]
 files = [A, B, C, D, E, F, G, H]
 
-pieces :: Player -> Board -> [(PieceType, Space)]
-pieces player board = do
+piecePositions :: Player -> Board -> [(PieceType, Space)]
+piecePositions player board = do
   space <- allSpaces
   (player', pieceType) <- maybeToList $ Map.lookup space board
-  guard $ player' == player 
+  guard $ player' == player
   return (pieceType, space)
 
 other :: Player -> Player
@@ -219,19 +245,10 @@ enemyPiece ofPlayer (player, pieceType)
   | otherwise = Nothing
 
 applyMove :: Board -> Move -> Board
-applyMove board move = Map.insert to (board ! from) (Map.delete from board) where
-  to = toSpace move
-  from = fromSpace move
-
-play :: Monad f => GetMove f -> f Result
-play getMove = play' White startingBoard where
-  play' player board = do
-    newBoard <- getBoard player board
-    case postMoveStatus player newBoard of
-      Playing -> play' (nextPlayer player) newBoard
-      Finished result -> return result
-  nextPlayer = other
-  getBoard player board = applyMove board <$> getMove player board
+applyMove board move = Map.insert to (board ! from) (Map.delete from board)
+  where
+    to = toSpace move
+    from = fromSpace move
 
 firstJust :: (a -> Maybe b) -> [a] -> Maybe b
-firstJust f = getFirst . foldMap (First . f)
+firstJust f = fmap getFirst . foldMap (fmap First . f)

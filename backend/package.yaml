@@ -21,8 +21,9 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 dependencies:
 - base >= 4.7 && < 5
-- relude
 - containers
+- mtl
+- text
 
 ghc-options:
 - -Wall
@@ -38,7 +39,6 @@ ghc-options:
 library:
   source-dirs: src
   default-extensions:  
-  - NoImplicitPrelude 
   - OverloadedStrings
 
 executables:

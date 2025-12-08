@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Lib
+import Cli (playGame)
 
 main :: IO ()
-main = someFunc
+main = playGame
