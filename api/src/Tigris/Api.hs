@@ -12,6 +12,7 @@ module Tigris.Api (Dynasty, gameServerDependencies) where
 
 import BasicPrelude
 import Control.Concurrent.STM (STM, TVar, newTVarIO, orElse, readTVar, retry)
+import Control.Monad.Random.Lazy
 import Data.Aeson (FromJSON, ToJSON)
 import qualified Data.Map as Map
 import GHC.Generics (Generic)
@@ -19,6 +20,8 @@ import Lib
 import Lucid (term, toHtml)
 import Lucid.Base (Html)
 import Lucid.Html5
+import System.Random (StdGen, newStdGen)
+import System.Random.Shuffle (shuffleM)
 
 -- Types
 
@@ -32,18 +35,19 @@ gameServerDependencies :: GameServerDependencies
 gameServerDependencies = GameServerDependencies Tigris tigrisActions
 
 tigrisActions :: IO Actions
-tigrisActions = actions (newGame openingState) (setupGame >=> play) (table chooseDynasty) <$> newTVarIO openingState
+tigrisActions = actions (newGame openingState) hostGame (table $ flip gameHtml) <$> newTVarIO Map.empty
   where
-    openingState = Map.empty
+    hostGame game = play game =<< evalRandIO . setupGame =<< seatPlayers game
+    play game g = pure ()
 
-setupGame :: GameTVars DynastyMap PlayerSetupMessage -> IO DynastyMap
-setupGame game = seatPlayers game (setup game) Map.empty
+openingState :: GameState
+openingState = SeatingPlayers Map.empty
 
-setup :: GameTVars DynastyMap PlayerSetupMessage -> (DynastyMap -> STMIO DynastyMap) -> DynastyMap -> STMIO DynastyMap
-setup game = setupGameUnfixed (receiveMsg game) (pure . pure)
+seatPlayers :: GameTVars GameState PlayerSetupMessage -> IO DynastyMap
+seatPlayers game = updateWithNotify (seatPlayersUnfixed (uncurry setupMessage <$> nextMessageFromAnyPlayer (playerInputs game)) (pure . pure)) (notify game . SeatingPlayers) Map.empty
 
-setupGameUnfixed :: (Monad m) => m SetupMessage -> (DynastyMap -> m (f DynastyMap)) -> (DynastyMap -> m (f DynastyMap)) -> DynastyMap -> m (f DynastyMap)
-setupGameUnfixed receive end recurse playerMap = do
+seatPlayersUnfixed :: (Monad m) => m SetupMessage -> (DynastyMap -> m (f DynastyMap)) -> (DynastyMap -> m (f DynastyMap)) -> DynastyMap -> m (f DynastyMap)
+seatPlayersUnfixed receive end recurse playerMap = do
   message <- receive
   case message of
     TakePosition player position -> recurse $ takePosition playerMap
@@ -51,21 +55,35 @@ setupGameUnfixed receive end recurse playerMap = do
         takePosition = if Map.notMember position playerMap then Map.insert position player . Map.filter (/= player) else id
     Start -> (if atLeastTwo playerMap then end else recurse) playerMap
 
-type STMIO a = STM (IO a)
-
-receiveMsg :: GameTVars DynastyMap PlayerSetupMessage -> STM SetupMessage
-receiveMsg game = readTVar (playerInputs game) >>= nextPlayerMessage
-  where
-    nextPlayerMessage = foldr orElse retry . map (uncurry $ fmap . setupMessage)
-
 atLeastTwo :: Map Dynasty a -> Bool
 atLeastTwo playerMap = Map.size playerMap >= 2
 
-play :: Map Dynasty Player -> IO ()
-play m = putStrLn $ "playing: " <> tshow m
+setupGame :: (MonadRandom m) => Map Dynasty a -> m GameState
+setupGame m = Playing <$> shuffleM dynasties
+  where
+    dynasties = Map.keys m
 
-chooseDynasty :: Player -> DynastyMap -> Html ()
-chooseDynasty thisPlayer playerMap =
+data GameResult
+
+play :: GameTVars GameState a -> GameState -> IO ()
+play game = void . updateWithNotify playGameUnfixed (notify game)
+
+playGameUnfixed :: (GameState -> m (f GameState)) -> GameState -> (m (f GameState))
+playGameUnfixed = undefined
+
+data GameState = SeatingPlayers DynastyMap | Playing [Dynasty] deriving (Show)
+
+gameHtml :: GameState -> Player -> Html ()
+gameHtml (SeatingPlayers map) = chooseDynasty map
+gameHtml (Playing dynasties) = boardHtml dynasties
+
+boardHtml :: [Dynasty] -> Player -> Html ()
+boardHtml dynasties player = div_ $ forM_ dynasties dynastyDiv
+  where
+    dynastyDiv dynasty = toHtml $ show dynasty
+
+chooseDynasty :: DynastyMap -> Player -> Html ()
+chooseDynasty playerMap thisPlayer =
   div_ [id_ "board"] $ do
     h2_ "Choose Your Dynasty"
     div_ [class_ "dynasty-grid"]

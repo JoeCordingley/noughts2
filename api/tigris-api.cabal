@@ -38,7 +38,8 @@ library
       src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
-      aeson
+      MonadRandom
+    , aeson
     , async
     , base >=4.7 && <5
     , basic-prelude
@@ -52,7 +53,8 @@ library
     , lens
     , lucid2
     , mtl
-    , mustache
+    , random
+    , random-shuffle
     , servant
     , servant-server
     , servant-websockets
@@ -75,7 +77,8 @@ executable tigris-api-exe
       app
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      aeson
+      MonadRandom
+    , aeson
     , async
     , base >=4.7 && <5
     , basic-prelude
@@ -89,7 +92,8 @@ executable tigris-api-exe
     , lens
     , lucid2
     , mtl
-    , mustache
+    , random
+    , random-shuffle
     , servant
     , servant-server
     , servant-websockets
@@ -115,6 +119,7 @@ test-suite tigris-api-test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       HUnit
+    , MonadRandom
     , aeson
     , async
     , base >=4.7 && <5
@@ -129,7 +134,8 @@ test-suite tigris-api-test
     , lens
     , lucid2
     , mtl
-    , mustache
+    , random
+    , random-shuffle
     , servant
     , servant-server
     , servant-websockets

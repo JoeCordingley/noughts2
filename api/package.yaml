@@ -44,7 +44,9 @@ dependencies:
 - stm
 - async
 - composition
-- mustache
+- random
+- random-shuffle
+- MonadRandom
 
 ghc-options:
 - -Wall

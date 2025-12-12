@@ -123,7 +123,7 @@ actionsApi (Responses {createGamePage, createGameResponse, knownPlayerResponse, 
             =<< liftIO maybeConnectPlayer
           where
             connect player = connectGame game player conn
-            maybeConnectPlayer = traverse connect . join =<< (traverse (tablePlayers game) $ playerIdCookie =<< maybeCookies)
+            maybeConnectPlayer = traverse connect . join =<< (traverse (tablePlayer game) $ playerIdCookie =<< maybeCookies)
 
 data Responses = Responses
   { createGameResponse :: GameId -> PlayerId -> CreateGameResponse,

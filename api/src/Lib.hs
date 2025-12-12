@@ -10,7 +10,7 @@ module Lib where
 import BasicPrelude
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Async (cancel, withAsync)
-import Control.Concurrent.STM (STM, TQueue, TVar, atomically, modifyTVar, modifyTVar', newTQueueIO, newTVar, readTQueue, readTVar, readTVarIO, writeTQueue, writeTVar)
+import Control.Concurrent.STM (STM, TQueue, TVar, atomically, modifyTVar, modifyTVar', newTQueueIO, newTVar, orElse, readTQueue, readTVar, readTVarIO, retry, writeTQueue, writeTVar)
 import Data.Aeson (FromJSON, ToJSON, decode)
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Function (fix)
@@ -84,14 +84,6 @@ instance ToHttpApiData GameKey where
   toUrlPiece Tigris = "tigris"
   toUrlPiece Noughts = "noughts"
 
--- data GameServerDependencies input state = GameServerDependencies
---   { gameKey :: GameKey,
---     playGame :: state -> IO (),
---     setup :: STM input -> (state -> STM ()) -> state -> IO state,
---     openingState :: state,
---     showState :: Player -> state -> Html ()
---   }
-
 data GameServerDependencies = GameServerDependencies
   { gameKey :: GameKey,
     gameActions :: IO Actions
@@ -99,7 +91,7 @@ data GameServerDependencies = GameServerDependencies
 
 data Actions = Actions {createGame :: Player -> IO GameId, newPlayerId :: IO PlayerId, getGame :: GameId -> IO (Maybe Table)}
 
-data Table = Table {addPlayer :: Player -> IO (), connectGame :: Player -> Connection -> IO (), tablePlayers :: PlayerId -> IO (Maybe Player)}
+data Table = Table {addPlayer :: Player -> IO (), connectGame :: Player -> Connection -> IO (), tablePlayer :: PlayerId -> IO (Maybe Player)}
 
 data Player = Player {playerId :: PlayerId, playerName :: Name} deriving (Show, Eq)
 
@@ -119,12 +111,10 @@ data GameTVars state input = GameTVars
     waitForFinish :: IO ()
   }
 
-seatPlayers :: GameTVars state input -> ((state -> STM (IO state)) -> state -> STM (IO state)) -> state -> IO state
-seatPlayers game setupGame startingState = updateWithNotify setupGame notify startingState
-  where
-    notify state = do
-      readTVar (playerOutputs game) >>= traverse_ ($ state)
-      writeTVar (latestState game) $ state
+notify :: GameTVars state input -> state -> STM ()
+notify game state = do
+  readTVar (playerOutputs game) >>= traverse_ ($ state)
+  writeTVar (latestState game) $ state
 
 updateWithNotify :: ((a -> STM (IO b)) -> a -> STM (IO b)) -> (a -> STM ()) -> a -> IO b
 updateWithNotify update notify = (fixAtomically $ update . notifying) <=< returning (atomically . notify)
@@ -151,10 +141,11 @@ newGame openingState player = do
   return GameTVars {latestState = latestState, playerOutputs = notify, playerInputs = ps, waitForFinish = forever $ threadDelay 10000, playerNames = names}
 
 table :: (Show input, FromJSON input, Show state) => (Player -> state -> Html ()) -> GameTVars state input -> Table
-table playerView tvars = Table {addPlayer, connectGame, tablePlayers}
+table playerView tvars = Table {addPlayer, connectGame, tablePlayer}
   where
-    addPlayer player = atomically $ addPlayerSTM player tvars
-    tablePlayers id = atomically . fmap (Map.lookup id) . readTVar $ playerNames tvars
+    addPlayer player = atomically $ addPlayerSTM player
+    addPlayerSTM player = flip modifyTVar' (Map.insert (playerId player) player) $ playerNames tvars
+    tablePlayer id = atomically . fmap (Map.lookup id) . readTVar $ playerNames tvars
     connectGame player connection = do
       putStrLn "connected"
       outputQueue <- newTQueueIO
@@ -164,26 +155,23 @@ table playerView tvars = Table {addPlayer, connectGame, tablePlayers}
         modifyTVar' (playerInputs tvars) ((player, readTQueue inputQueue) :)
         state <- readTVar (latestState tvars)
         writeTQueue outputQueue state
-      withAsync (sendLoop playerView outputQueue connection player) $ \sender ->
-        withAsync (readLoop connection inputQueue) $ \reader ->
+      withAsync (sendLoop (fmap (playerView player) $ readTQueue outputQueue) connection) $ \sender ->
+        withAsync (readLoop connection (writeTQueue inputQueue)) $ \reader ->
           waitForFinish tvars *> cancel sender *> cancel reader
 
-readLoop :: (FromJSON a, Show a) => Connection -> TQueue a -> IO ()
-readLoop conn queue = forever $ do
+readLoop :: (FromJSON a) => Connection -> (a -> STM ()) -> IO ()
+readLoop conn enqueue = forever $ do
   msg <- receiveData conn
-  putStrLn $ "msg: " <> tshow msg
   case decode msg of
     Just message -> do
-      putStrLn $ "message: " <> tshow message
-      atomically $ writeTQueue queue $ message
+      atomically . enqueue $ message
     Nothing -> do
       return () -- Handle decoding failure
 
-sendLoop :: (Show state) => (Player -> state -> Html ()) -> TQueue state -> Connection -> Player -> IO ()
-sendLoop playerView queue conn player = forever $ do
-  state <- atomically $ readTQueue queue
-  putStrLn $ "sending" <> tshow state
-  sendHtml conn $ playerView player state
+sendLoop :: STM (Html ()) -> Connection -> IO ()
+sendLoop dequeue conn = forever $ sendHtml conn =<< atomically dequeue
 
-addPlayerSTM :: Player -> GameTVars state input -> STM ()
-addPlayerSTM player = flip modifyTVar' (Map.insert (playerId player) player) . playerNames
+nextMessageFromAnyPlayer :: TVar [(Player, STM input)] -> STM (Player, input)
+nextMessageFromAnyPlayer playerInputs = readTVar playerInputs >>= nextPlayerMessage
+  where
+    nextPlayerMessage = foldr orElse retry . map sequence
