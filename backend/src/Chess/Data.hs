@@ -1,7 +1,10 @@
-module Chess.Data (Board, File(..), PieceType(..), Rank(..), Space, Player(..), Piece) where
+module Chess.Data (Board, File (..), PieceType (..), Rank (..), Square, Player (..), Piece, Move (..), MoveType (..), Game (..), CastleLocation (..)) where
 
 import Data.Map (Map)
-type Board = Map Space Piece
+import Data.Set (Set)
+
+type Board = Map Square Piece
+
 data File
   = A
   | B
@@ -11,7 +14,8 @@ data File
   | F
   | G
   | H
-  deriving (Eq, Ord, Enum, Bounded, Show, Read)
+  deriving (Eq, Ord, Enum, Bounded)
+
 data Rank
   = One
   | Two
@@ -21,7 +25,7 @@ data Rank
   | Six
   | Seven
   | Eight
-  deriving (Eq, Ord, Enum, Bounded, Show)
+  deriving (Eq, Ord, Enum, Bounded)
 
 data PieceType
   = King
@@ -30,13 +34,22 @@ data PieceType
   | Bishop
   | Queen
   | Pawn
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord)
+
 type Piece =
   (Player, PieceType)
 
+type Square = (File, Rank)
 
-type Space = (File, Rank)
 data Player
   = White
   | Black
   deriving (Show, Eq, Ord)
+
+data Move f = Move {movePiece :: PieceType, fromSquare :: (f File, f Rank), moveType :: MoveType, toSquare :: Square}
+
+data MoveType = Takes | To deriving (Eq)
+
+data Game = Game {board :: Board, playerToMove :: Player, castlesAvailable :: Set (Player, CastleLocation), enPassantSquare :: Maybe Square, halfMoveClock :: Int, fullMoveNumber :: Int}
+
+data CastleLocation = Kingside | Queenside deriving (Eq, Ord)

@@ -2,18 +2,21 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
 
-module Chess.Game (play, GetAction, Board, Result (..), Player (..), Space, Rank (..), File (..), Move (..), legalMoves, PieceType (..), ranks, files, startingBoard, playMove, fromMoves, Action (..)) where
+module Chess.Game (play, GetAction, Board, Result (..), Player (..), Square, Rank (..), File (..), Move (..), legalMoves, PieceType (..), ranks, files, startingBoard, fromMoves, Action (..), startingGame) where
 
 import Chess.Data
 import Chess.Lib (singletonMaybe)
-import qualified Chess.Notation as Notation (Move (..))
+import Chess.Notation (NotatedMove (..))
 import Control.Monad (guard)
 import Control.Monad.State (StateT (..), state)
+import Data.Functor.Identity (Identity (Identity, runIdentity))
 import Data.List (singleton)
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Maybe (isNothing, maybeToList)
 import Data.Semigroup (First (..))
+import Data.Set (Set)
+import qualified Data.Set as Set
 
 data Result
   = Winner Player
@@ -28,21 +31,15 @@ data EndStatus
   = Checkmate
   | Stalemate
 
-data Move
-  = Move {movePiece :: PieceType, fromSpace :: Space, toSpace :: Space, isCapture :: Bool}
-  deriving (Eq)
+data Action = MoveAction (Move Identity) | Resign
 
-data Action = MoveAction Move | Resign
-
-data AttackingMove = AttackingMove {attackingPiece :: PieceType, pieceUnderAttack :: PieceType, attackingFrom :: Space, attackingTo :: Space}
-
-play :: (Monad f) => PlayMove f -> f (Result, Board)
-play playMove = play' White startingBoard
+play :: (Monad f) => GetAction f -> f (Result, Game)
+play getAction = play' startingGame
   where
-    play' player board = do
-      (status, newBoard) <- playMove player board
+    play' game = do
+      (status, newBoard) <- playMove getAction game
       case status of
-        Playing -> play' (nextPlayer player) newBoard
+        Playing -> play' newBoard
         Finished result -> return (result, newBoard)
     nextPlayer = other
 
@@ -63,63 +60,81 @@ startingBoard =
     otherPieces = [Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook]
 
 playMove :: (Functor f) => GetAction f -> PlayMove f
-playMove getMove player board = g <$> getMove player board
+playMove getAction game = g <$> getAction game
   where
-    g (MoveAction move) = f $ applyMove board move
-    g Resign = (statusResigned, board) where statusResigned = Finished . Winner $ other player
-    f newBoard = (postMoveStatus player newBoard, newBoard)
+    g (MoveAction move) = f $ applyMove game move
+    g Resign = (statusResigned, game) where statusResigned = Finished . Winner . other $ playerToMove game
+    f newGame = (postMoveStatus newGame, newGame)
 
-disambiguate :: Player -> Board -> Notation.Move -> [Move]
-disambiguate player board writtenMove = filter (isMove writtenMove) $ legalMoves player board
+disambiguate :: Game -> Move Maybe -> [Move Identity]
+disambiguate game move = filter (matches move) $ legalMoves game
   where
-    isMove (Notation.Move pieceType maybeOriginFile maybeOriginRank isCapture' destination) move =
+    matches (Move pieceType (maybeOriginFile, maybeOriginRank) moveType' destination) move =
       movePiece move
         == pieceType
-        && isCapture'
-          == isCapture move
-        && toSpace move
+        && moveType'
+          == moveType move
+        && toSquare move
           == destination
-        && all (== (fst . fromSpace $ move)) maybeOriginFile
-        && all (== (snd . fromSpace $ move)) maybeOriginRank
+        && all (== (runIdentity . fst . fromSquare $ move)) maybeOriginFile
+        && all (== (runIdentity . snd . fromSquare $ move)) maybeOriginRank
 
-type GetAction f = Player -> Board -> f Action
+type GetAction f = Game -> f Action
 
-fromMoves :: GetAction (StateT [Notation.Move] Maybe)
-fromMoves player board = StateT f
+startingGame :: Game
+startingGame = Game {board = startingBoard, playerToMove = White, castlesAvailable = allCastles, enPassantSquare = Nothing, halfMoveClock = 0, fullMoveNumber = 0}
+
+allCastles :: Set (Player, CastleLocation)
+allCastles = Set.fromList $ (,) <$> [White, Black] <*> [Kingside, Queenside]
+
+fromMoves :: [Move Maybe] -> Game -> Maybe Game
+fromMoves = foldr f pure
   where
-    f (move : moves) = (,moves) . MoveAction <$> (singletonMaybe $ disambiguate player board move)
-    f [] = Just (Resign, [])
+    f move g game = singletonMaybe (disambiguate game move) >>= g . applyMove game
 
-type PlayMove f = Player -> Board -> f (Status, Board)
+type PlayMove f = Game -> f (Status, Game)
 
-finishedStatus :: Player -> Board -> Maybe EndStatus
-finishedStatus player board = if null $ legalMoves (other player) board then Just (if kingIsUnderAttack then Checkmate else Stalemate) else Nothing
+finishedStatus :: Game -> Maybe EndStatus
+finishedStatus game = if null $ legalMoves game then Just (if kingIsUnderAttack then Checkmate else Stalemate) else Nothing
   where
     kingIsUnderAttack = King `elem` piecesUnderAttack
-    piecesUnderAttack = pieceUnderAttack <$> attackingMoves player board
+    piecesUnderAttack = [snd piece | move <- attackingMoves (playerToMove game) (board game), piece <- maybeToList $ pieceUnderAttack move]
+    pieceUnderAttack = pieceAt (board game) . toSquare
 
 result :: Player -> EndStatus -> Result
 result player Checkmate = Winner player
 result _ Stalemate = Draw
 
-postMoveStatus :: Player -> Board -> Status
-postMoveStatus player board = maybe Playing (Finished . result player) $ finishedStatus player board
+postMoveStatus :: Game -> Status
+postMoveStatus game = maybe Playing (Finished . result (playerToMove game)) $ finishedStatus game
 
-legalMoves :: Player -> Board -> [Move]
-legalMoves player board = (map toMove (attackingMoves player board) ++ nonAttackingMoves player board)
-  where
-    toMove attackingMove = Move {movePiece = attackingPiece attackingMove, fromSpace = attackingFrom attackingMove, toSpace = attackingTo attackingMove, isCapture = True}
+legalMoves :: Game -> [Move Identity]
+legalMoves game = attackingMoves (playerToMove game) (board game) ++ nonAttackingMoves (playerToMove game) (board game)
 
-nonAttackingMoves :: Player -> Board -> [Move]
+idPair :: (a, b) -> (Identity a, Identity b)
+idPair (a, b) = (Identity a, Identity b)
+
+runIdentityPair :: (Identity a, Identity b) -> (a, b)
+runIdentityPair (Identity a, Identity b) = (a, b)
+
+nonAttackingMoves :: Player -> Board -> [Move Identity]
 nonAttackingMoves player board = do
-  (pieceType, fromSpace) <- piecePositions player board
-  lineOfMovement <- linesOfMovement (player, pieceType) fromSpace
-  toSpace <- takeWhile unoccupied lineOfMovement
-  return $ Move {movePiece = pieceType, fromSpace, toSpace, isCapture = False}
+  (movePiece, fromSquare) <- piecePositions player board
+  lineOfMovement <- linesOfMovement (player, movePiece) fromSquare
+  toSquare <- takeWhile unoccupied lineOfMovement
+  let move = Move {movePiece, fromSquare = idPair fromSquare, moveType = To, toSquare}
+  guard . not . isUnderCheck player $ applyMoveToBoard move board
+  return $ move
   where
     unoccupied space = isNothing $ pieceAt board space
 
-linesOfMovement :: Piece -> Space -> [[Space]]
+isUnderCheck :: Player -> Board -> Bool
+isUnderCheck player board = King `elem` piecesUnderAttack
+  where
+    piecesUnderAttack = [snd piece | move <- attackingMoves (other player) board, piece <- maybeToList $ pieceUnderAttack move]
+    pieceUnderAttack = pieceAt board . toSquare
+
+linesOfMovement :: Piece -> Square -> [[Square]]
 linesOfMovement (player, pieceType) = case pieceType of
   Pawn -> singleton . pawnMoves player
   Knight -> map singleton . knightMoves
@@ -128,22 +143,24 @@ linesOfMovement (player, pieceType) = case pieceType of
   King -> map singleton . kingMoves
   Queen -> queenLines
 
-attackingMoves :: Player -> Board -> [AttackingMove]
+attackingMoves :: Player -> Board -> [Move Identity]
 attackingMoves player board = do
-  (pieceType, fromSpace) <- piecePositions player board
-  spaces <- linesOfAttack (player, pieceType) fromSpace
+  (movePiece, fromSquare) <- piecePositions player board
+  spaces <- linesOfAttack (player, movePiece) fromSquare
   maybeToList $ do
-    (toSpace, piece) <- firstJust (fmapSnd $ pieceAt board) spaces
-    attacking <- enemyPiece player piece
-    return $ AttackingMove {attackingPiece = pieceType, pieceUnderAttack = attacking, attackingFrom = fromSpace, attackingTo = toSpace}
+    (toSquare, (ownerOfPiece, _)) <- firstJust (fmapSnd $ pieceAt board) spaces
+    guard $ ownerOfPiece == other player
+    let move = Move {movePiece, fromSquare = idPair fromSquare, moveType = Takes, toSquare}
+    guard . not . isUnderCheck player $ applyMoveToBoard move board
+    return move
   where
     fmapSnd f a = (,) a <$> f a
 
-linesOfAttack :: Piece -> Space -> [[Space]]
+linesOfAttack :: Piece -> Square -> [[Square]]
 linesOfAttack (player, Pawn) = map singleton . pawnAttacks player
 linesOfAttack piece = linesOfMovement piece
 
-pawnMoves :: Player -> Space -> [Space]
+pawnMoves :: Player -> Square -> [Square]
 pawnMoves = traverse . pawnRanks
   where
     pawnRanks White Two = [Three, Four]
@@ -151,7 +168,7 @@ pawnMoves = traverse . pawnRanks
     pawnRanks Black Seven = [Six, Five]
     pawnRanks Black rank = [pred rank]
 
-pawnAttacks :: Player -> Space -> [Space]
+pawnAttacks :: Player -> Square -> [Square]
 pawnAttacks player = pawnAttacks'
   where
     pawnAttacks' (A, rank) = [(B, advanceOne rank)]
@@ -161,7 +178,7 @@ pawnAttacks player = pawnAttacks'
       White -> succ rank
       Black -> pred rank
 
-knightMoves :: Space -> [Space]
+knightMoves :: Square -> [Square]
 knightMoves space = filter (knightMove space) allSpaces
   where
     knightMove x y = distances' == (1, 2) || distances' == (2, 1)
@@ -177,25 +194,25 @@ distances (a1, b1) (a2, b2) = (a1 `distance` a2, b1 `distance` b2)
   where
     distance x y = abs $ fromEnum x - fromEnum y
 
-bishopLines :: Space -> [[Space]]
+bishopLines :: Square -> [[Square]]
 bishopLines space = map (lineExtendingFrom space) diagonalDirections
   where
     diagonalDirections = (,) <$> [-1, 1] <*> [-1, 1]
 
-queenLines :: Space -> [[Space]]
+queenLines :: Square -> [[Square]]
 queenLines space = bishopLines space ++ rookLines space
 
-rookLines :: Space -> [[Space]]
+rookLines :: Square -> [[Square]]
 rookLines space = map (lineExtendingFrom space) orthogonalDirections
   where
     orthogonalDirections = map (,0) [-1, 1] ++ map (0,) [-1, 1]
 
-kingMoves :: Space -> [Space]
+kingMoves :: Square -> [Square]
 kingMoves space = filter (kingMove space) allSpaces
   where
     kingMove x y = uncurry max (distances x y) == 1
 
-lineExtendingFrom :: Space -> (Int, Int) -> [Space]
+lineExtendingFrom :: Square -> (Int, Int) -> [Square]
 lineExtendingFrom (file, rank) (fileIncrement, rankIncrement) =
   enumFromByIncrement file fileIncrement
     `zip` enumFromByIncrement rank rankIncrement
@@ -205,7 +222,7 @@ enumFromByIncrement a inc = map toEnum [init, init + inc .. fromEnum $ maxBound 
   where
     init = fromEnum a
 
-allSpaces :: [Space]
+allSpaces :: [Square]
 allSpaces = (,) <$> files <*> ranks
 
 ranks :: [Rank]
@@ -214,7 +231,7 @@ ranks = [One, Two, Three, Four, Five, Six, Seven, Eight]
 files :: [File]
 files = [A, B, C, D, E, F, G, H]
 
-piecePositions :: Player -> Board -> [(PieceType, Space)]
+piecePositions :: Player -> Board -> [(PieceType, Square)]
 piecePositions player board = do
   space <- allSpaces
   (player', pieceType) <- maybeToList $ Map.lookup space board
@@ -225,7 +242,7 @@ other :: Player -> Player
 other White = Black
 other Black = White
 
-pieceAt :: Board -> Space -> Maybe Piece
+pieceAt :: Board -> Square -> Maybe Piece
 pieceAt board space = Map.lookup space board
 
 enemyPiece :: Player -> Piece -> Maybe PieceType
@@ -233,11 +250,20 @@ enemyPiece ofPlayer (player, pieceType)
   | player == other ofPlayer = Just pieceType
   | otherwise = Nothing
 
-applyMove :: Board -> Move -> Board
-applyMove board move = Map.insert to (board ! from) (Map.delete from board)
+applyMoveToBoard :: Move Identity -> Board -> Board
+applyMoveToBoard move board = Map.insert to (board ! from) (Map.delete from board)
   where
-    to = toSpace move
-    from = fromSpace move
+    to = toSquare move
+    from = runIdentityPair $ fromSquare move
+
+applyMove :: Game -> Move Identity -> Game
+applyMove (Game {board, playerToMove, castlesAvailable, enPassantSquare, halfMoveClock, fullMoveNumber}) move = Game {board = applyMoveToBoard move board, playerToMove = other player, castlesAvailable, halfMoveClock = if halfMoveClockResets then 0 else halfMoveClock + 1, fullMoveNumber = if playerToMove == Black then fullMoveNumber + 1 else fullMoveNumber}
+  where
+    player = playerToMove
+    halfMoveClockResets = isCapture move || movePiece move == Pawn
+
+isCapture :: Move f -> Bool
+isCapture move = moveType move == Takes
 
 firstJust :: (a -> Maybe b) -> [a] -> Maybe b
 firstJust f = fmap getFirst . foldMap (fmap First . f)

@@ -2,7 +2,8 @@
 
 module Chess.Cli (playGame) where
 
-import Chess.Game (Action (..), Board, File (..), GetAction, Move (..), PieceType (..), Player (..), Rank (..), Result (..), Space, files, legalMoves, play, playMove, ranks)
+import Chess.Data (Game (..))
+import Chess.Game (Action (..), Board, File (..), GetAction, Move (..), PieceType (..), Player (..), Rank (..), Result (..), Square, files, legalMoves, play, ranks)
 import Chess.Lib (guarded, returning, singletonMaybe)
 import Control.Applicative (Alternative, (<|>))
 import Control.Monad ((>=>))
@@ -16,12 +17,12 @@ import Data.Text (Text, unpack)
 import Prelude hiding (readFile)
 
 playGame :: IO ()
-playGame = play (playMove getMoveCli) >>= printResult . fst
+playGame = play getMoveCli >>= printResult . fst
 
 getMoveCli :: GetAction IO
-getMoveCli player board = do
-  printBoard board
-  prompt (readValidMove player board) "not a valid move"
+getMoveCli game = do
+  printBoard $ board game
+  prompt (readValidMove game) "not a valid move"
 
 interleave :: a -> [a] -> [a]
 interleave _ [] = []
@@ -68,7 +69,7 @@ prompt f msg = untilJustM $ getLine >>= ifNothing (putStrLn msg) . f
 untilJustM :: (Monad f) => f (Maybe a) -> f a
 untilJustM fa = fa >>= maybe (untilJustM fa) pure
 
-readValidMove :: Player -> Board -> String -> Maybe Action
+readValidMove :: Game -> String -> Maybe Action
 readValidMove = undefined
 
 -- readValidMove player board = singletonMaybe . (readMove >=> disambiguate)
@@ -85,7 +86,7 @@ readValidMove = undefined
 --            && all ((==) (fst . fromSpace $ move)) maybeOriginFile
 --            && all ((==) (snd . fromSpace $ move)) maybeOriginRank
 
-readMove :: String -> [(PieceType, Maybe File, Maybe Rank, Bool, Space)]
+readMove :: String -> [(PieceType, Maybe File, Maybe Rank, Bool, Square)]
 readMove text = evalStateT parse text
   where
     parse = (,,,,) <$> parsePiece <*> parseFileMaybe <*> parseRankMaybe <*> parseCapture <*> parseSpace <* eos

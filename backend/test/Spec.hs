@@ -1,8 +1,9 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
-import Chess.Data (File (..), PieceType (..), Rank (..))
-import Chess.Game (Player (..), Result (..), fromMoves, play, playMove)
+import Chess.Data (File (..), Move (..), MoveType (..), PieceType (..), Rank (..))
+import Chess.Game (Player (..), Result (..), fromMoves, play, startingGame)
 import Chess.Notation
+import Chess.Notation (NotatedMove (NotatedMove))
 import Control.Monad.State
 import Data.Maybe (fromJust)
 import Test.Tasty
@@ -23,21 +24,17 @@ main =
 testShortGame :: TestTree
 testShortGame = testCase "shortGame" $ actual @?= expected
   where
-    actual = andFen <$> evalStateT (play $ playMove fromMoves) shortGameMoves
-      where
-        andFen (status, board) = (status, fen board)
-    expected = Just (Winner Black, shortGameFen)
+    actual = fen <$> fromMoves shortGameMoves startingGame
+    expected = Just shortGameFen
     shortGameMoves = concatMap flattenMove shortGameFullMoves
     shortGameFen = "rnbqkb1r/pppp1ppp/8/4P3/8/4n2P/PPPNPPP1/R1BQKBNR w KQkq - 1 5"
 
-baseMove = Move {fromRank = Nothing, fromFile = Nothing, isCapture = False}
-
 shortGameFullMoves :: [FullMove]
 shortGameFullMoves =
-  [ FullMove 1 (Just baseMove {movePiece = Pawn, toSpace = (D, Four)}) (Just baseMove {movePiece = Knight, toSpace = (F, Six)}),
-    FullMove 2 (Just baseMove {movePiece = Knight, toSpace = (D, Two)}) (Just baseMove {movePiece = Pawn, toSpace = (E, Five)}),
-    FullMove 3 (Just baseMove {movePiece = Pawn, fromFile = Just D, isCapture = True, toSpace = (E, Five)}) (Just baseMove {movePiece = Knight, toSpace = (G, Four)}),
-    FullMove 4 (Just baseMove {movePiece = Pawn, toSpace = (H, Three)}) (Just baseMove {movePiece = Knight, toSpace = (E, Three)})
+  [ FullMove 1 (Just $ NotatedMove $ Move Pawn (Nothing, Nothing) To (D, Four)) (Just $ NotatedMove $ Move Knight (Nothing, Nothing) To (F, Six)),
+    FullMove 2 (Just $ NotatedMove $ Move Knight (Nothing, Nothing) To (D, Two)) (Just $ NotatedMove $ Move Pawn (Nothing, Nothing) To (E, Five)),
+    FullMove 3 (Just $ NotatedMove $ Move Pawn (Just D, Nothing) Takes (E, Five)) (Just $ NotatedMove $ Move Knight (Nothing, Nothing) To (G, Four)),
+    FullMove 4 (Just $ NotatedMove $ Move Pawn (Nothing, Nothing) To (H, Three)) (Just $ NotatedMove $ Move Knight (Nothing, Nothing) To (E, Three))
   ]
 
 testMoveTextParser :: TestTree
@@ -61,24 +58,21 @@ testFullMoveParser :: TestTree
 testFullMoveParser = testCase "fullMove" $ actual @?= expected
   where
     expected = FullMove 1 (Just whiteMove) (Just blackMove)
-    whiteMove = baseMove {movePiece = Pawn, toSpace = (D, Four)}
-    blackMove = baseMove {movePiece = Knight, toSpace = (F, Six)}
+    whiteMove = NotatedMove $ Move Pawn (Nothing, Nothing) To (D, Four)
+    blackMove = NotatedMove $ Move Knight (Nothing, Nothing) To (F, Six)
     actual = parseShouldSucceed fullMove "1.d4 Nf6 "
 
 testMoveParser :: TestTree
 testMoveParser = testGroup "test move" $ map moveTest moveCases
   where
     moveCases =
-      [ ("d4", baseMove {movePiece = Pawn, toSpace = (D, Four)}),
-        ("Nf6", baseMove {movePiece = Knight, toSpace = (F, Six)}),
-        ("dxe5", baseMove {movePiece = Pawn, fromFile = Just D, toSpace = (E, Five), isCapture = True}),
-        ("Rdf8", baseMove {movePiece = Rook, fromFile = Just D, toSpace = (F, Eight)}),
-        ("R1a3", baseMove {movePiece = Rook, fromRank = Just One, toSpace = (A, Three)}),
-        ("Qh4e1", baseMove {movePiece = Queen, fromFile = Just H, fromRank = Just Four, toSpace = (E, One)})
+      [ ("d4", Move Pawn (Nothing, Nothing) To (D, Four)),
+        ("Nf6", Move Knight (Nothing, Nothing) To (F, Six)),
+        ("dxe5", Move Pawn (Just D, Nothing) Takes (E, Five)),
+        ("Rdf8", Move Rook (Just D, Nothing) To (F, Eight)),
+        ("R1a3", Move Rook (Nothing, Just One) To (A, Three)),
+        ("Qh4e1", Move Queen (Just H, Just Four) To (E, One))
       ]
-    moveTest (string, expected) = testCase string $ actual @?= expected
+    moveTest (string, expected) = testCase string $ actual @?= NotatedMove expected
       where
         actual = parseShouldSucceed move string
-
--- moveText :: Move -> String
--- moveText (Move {movePiece, fromRow, fromColumn, isCapture, toSpace}) =
