@@ -1,9 +1,11 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 
-module Cli (playGame) where
+module Chess.Cli (playGame) where
 
+import Chess.Game (Action (..), Board, File (..), GetAction, Move (..), PieceType (..), Player (..), Rank (..), Result (..), Space, files, legalMoves, play, playMove, ranks)
+import Chess.Lib (guarded, returning, singletonMaybe)
 import Control.Applicative (Alternative, (<|>))
-import Control.Monad (guard, (>=>))
+import Control.Monad ((>=>))
 import Control.Monad.State
 import Data.Foldable
 import Data.Functor (void)
@@ -11,14 +13,12 @@ import Data.List (uncons)
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe, maybeToList)
 import Data.Text (Text, unpack)
-import Game (Board, File (..), GetMove, Move (..), PieceType (..), Player (..), Rank (..), Result (..), Space, files, legalMoves, play, playMove, ranks)
-import Lib (guarded, returning)
 import Prelude hiding (readFile)
 
 playGame :: IO ()
-playGame = play (playMove getMoveCli) >>= printResult
+playGame = play (playMove getMoveCli) >>= printResult . fst
 
-getMoveCli :: GetMove IO
+getMoveCli :: GetAction IO
 getMoveCli player board = do
   printBoard board
   prompt (readValidMove player board) "not a valid move"
@@ -68,20 +68,22 @@ prompt f msg = untilJustM $ getLine >>= ifNothing (putStrLn msg) . f
 untilJustM :: (Monad f) => f (Maybe a) -> f a
 untilJustM fa = fa >>= maybe (untilJustM fa) pure
 
-readValidMove :: Player -> Board -> String -> Maybe Move
-readValidMove player board = singletonMaybe . (readMove >=> disambiguate)
-  where
-    disambiguate writtenMove = filter (isMove writtenMove) $ legalMoves player board
-      where
-        isMove (pieceType, maybeOriginFile, maybeOriginRank, isCapture', destination) move =
-          movePiece move
-            == pieceType
-            && isCapture'
-              == (isCapture move)
-            && toSpace move
-              == destination
-            && all ((==) (fst . fromSpace $ move)) maybeOriginFile
-            && all ((==) (snd . fromSpace $ move)) maybeOriginRank
+readValidMove :: Player -> Board -> String -> Maybe Action
+readValidMove = undefined
+
+-- readValidMove player board = singletonMaybe . (readMove >=> disambiguate)
+--  where
+--    disambiguate (MoveAction writtenMove) = filter (isMove writtenMove) $ legalMoves player board
+--      where
+--        isMove (pieceType, maybeOriginFile, maybeOriginRank, isCapture', destination) move =
+--          movePiece move
+--            == pieceType
+--            && isCapture'
+--              == (isCapture move)
+--            && toSpace move
+--              == destination
+--            && all ((==) (fst . fromSpace $ move)) maybeOriginFile
+--            && all ((==) (snd . fromSpace $ move)) maybeOriginRank
 
 readMove :: String -> [(PieceType, Maybe File, Maybe Rank, Bool, Space)]
 readMove text = evalStateT parse text
@@ -147,10 +149,6 @@ eos = void $ get >>= guarded null
 
 parseMaybe :: Parser a -> Parser (Maybe a)
 parseMaybe s = Just <$> s <|> return Nothing
-
-singletonMaybe :: [a] -> Maybe a
-singletonMaybe [a] = Just a
-singletonMaybe _ = Nothing
 
 resultString :: Result -> String
 resultString (Winner player) = (show player) ++ " wins!"

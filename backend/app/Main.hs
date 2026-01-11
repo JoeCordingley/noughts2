@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Cli (playGame)
+import Chess.Cli (playGame)
 
 main :: IO ()
 main = playGame

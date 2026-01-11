@@ -2,99 +2,95 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
 
-module Game (play, GetMove, Board, Result (..), Player (..), Space, Rank (..), File (..), Move (..), legalMoves, PieceType (..), ranks, files, startingBoard, playMove) where
+module Chess.Game (play, GetAction, Board, Result (..), Player (..), Space, Rank (..), File (..), Move (..), legalMoves, PieceType (..), ranks, files, startingBoard, playMove, fromMoves, Action (..)) where
 
+import Chess.Data
+import Chess.Lib (singletonMaybe)
+import qualified Chess.Notation as Notation (Move (..))
 import Control.Monad (guard)
+import Control.Monad.State (StateT (..), state)
 import Data.List (singleton)
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Maybe (isNothing, maybeToList)
 import Data.Semigroup (First (..))
 
-data Player
-  = White
-  | Black
-  deriving (Show, Eq, Ord)
-
 data Result
   = Winner Player
   | Draw
+  deriving (Eq, Show)
 
 data Status
-  = Playing Board
+  = Playing
   | Finished Result
 
 data EndStatus
   = Checkmate
   | Stalemate
 
-type Board = Map Space Piece
+data Move
+  = Move {movePiece :: PieceType, fromSpace :: Space, toSpace :: Space, isCapture :: Bool}
+  deriving (Eq)
 
-type Piece =
-  (Player, PieceType)
-
-data PieceType
-  = King
-  | Rook
-  | Knight
-  | Bishop
-  | Queen
-  | Pawn
-  deriving (Eq, Ord, Show)
-
-type Space = (File, Rank)
-
-data File
-  = A
-  | B
-  | C
-  | D
-  | E
-  | F
-  | G
-  | H
-  deriving (Eq, Ord, Enum, Bounded, Show, Read)
-
-data Rank
-  = One
-  | Two
-  | Three
-  | Four
-  | Five
-  | Six
-  | Seven
-  | Eight
-  deriving (Eq, Ord, Enum, Bounded, Show)
-
-data Move = Move {movePiece :: PieceType, fromSpace :: Space, toSpace :: Space, isCapture :: Bool} deriving (Eq)
+data Action = MoveAction Move | Resign
 
 data AttackingMove = AttackingMove {attackingPiece :: PieceType, pieceUnderAttack :: PieceType, attackingFrom :: Space, attackingTo :: Space}
 
-play :: (Monad f) => PlayMove f -> f Result
+play :: (Monad f) => PlayMove f -> f (Result, Board)
 play playMove = play' White startingBoard
   where
     play' player board = do
-      status <- playMove player board
+      (status, newBoard) <- playMove player board
       case status of
-        Playing newBoard -> play' (nextPlayer player) newBoard
-        Finished result -> return result
+        Playing -> play' (nextPlayer player) newBoard
+        Finished result -> return (result, newBoard)
     nextPlayer = other
 
 startingBoard :: Board
-startingBoard = Map.fromList $ do
-  (rank, player, pieceTypes) <- [(One, White, otherPieces), (Two, White, pawns), (Seven, Black, pawns), (Eight, Black, otherPieces)]
-  (file, pieceType) <- files `zip` pieceTypes
-  return ((file, rank), (player, pieceType))
+startingBoard =
+  Map.fromList $
+    [ ((file, rank), (player, pieceType))
+      | (rank, player, pieceTypes) <-
+          [ (One, White, otherPieces),
+            (Two, White, pawns),
+            (Seven, Black, pawns),
+            (Eight, Black, otherPieces)
+          ],
+        (file, pieceType) <- files `zip` pieceTypes
+    ]
   where
     pawns = replicate 8 Pawn
     otherPieces = [Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook]
 
-playMove :: (Functor f) => GetMove f -> PlayMove f
-playMove getMove player board = postMoveStatus player . applyMove board <$> getMove player board
+playMove :: (Functor f) => GetAction f -> PlayMove f
+playMove getMove player board = g <$> getMove player board
+  where
+    g (MoveAction move) = f $ applyMove board move
+    g Resign = (statusResigned, board) where statusResigned = Finished . Winner $ other player
+    f newBoard = (postMoveStatus player newBoard, newBoard)
 
-type GetMove f = Player -> Board -> f Move
+disambiguate :: Player -> Board -> Notation.Move -> [Move]
+disambiguate player board writtenMove = filter (isMove writtenMove) $ legalMoves player board
+  where
+    isMove (Notation.Move pieceType maybeOriginFile maybeOriginRank isCapture' destination) move =
+      movePiece move
+        == pieceType
+        && isCapture'
+          == isCapture move
+        && toSpace move
+          == destination
+        && all (== (fst . fromSpace $ move)) maybeOriginFile
+        && all (== (snd . fromSpace $ move)) maybeOriginRank
 
-type PlayMove f = Player -> Board -> f Status
+type GetAction f = Player -> Board -> f Action
+
+fromMoves :: GetAction (StateT [Notation.Move] Maybe)
+fromMoves player board = StateT f
+  where
+    f (move : moves) = (,moves) . MoveAction <$> (singletonMaybe $ disambiguate player board move)
+    f [] = Just (Resign, [])
+
+type PlayMove f = Player -> Board -> f (Status, Board)
 
 finishedStatus :: Player -> Board -> Maybe EndStatus
 finishedStatus player board = if null $ legalMoves (other player) board then Just (if kingIsUnderAttack then Checkmate else Stalemate) else Nothing
@@ -107,7 +103,7 @@ result player Checkmate = Winner player
 result _ Stalemate = Draw
 
 postMoveStatus :: Player -> Board -> Status
-postMoveStatus player board = maybe (Playing board) (Finished . result player) $ finishedStatus player board
+postMoveStatus player board = maybe Playing (Finished . result player) $ finishedStatus player board
 
 legalMoves :: Player -> Board -> [Move]
 legalMoves player board = (map toMove (attackingMoves player board) ++ nonAttackingMoves player board)
@@ -165,15 +161,6 @@ pawnAttacks player = pawnAttacks'
       White -> succ rank
       Black -> pred rank
 
--- pawnAttacks player space = filter (pawnAttack space) allSpaces
---  where
---    pawnAttack (f1, r1) (f2, r2) = movementIsOneForward && movementIsOneToTheSide
---      where
---        movementIsOneForward = (rankDiff == 1 && player == White) || (rankDiff == -1 && player == Black)
---        rankDiff = fromEnum r2 - fromEnum r1
---        movementIsOneToTheSide = absFileDiff == 1
---        absFileDiff = abs $ fromEnum f2 - fromEnum f1
-
 knightMoves :: Space -> [Space]
 knightMoves space = filter (knightMove space) allSpaces
   where
@@ -183,7 +170,9 @@ knightMoves space = filter (knightMove space) allSpaces
 
 distances ::
   (Enum a, Enum b) =>
-  (a, b) -> (a, b) -> (Int, Int)
+  (a, b) ->
+  (a, b) ->
+  (Int, Int)
 distances (a1, b1) (a2, b2) = (a1 `distance` a2, b1 `distance` b2)
   where
     distance x y = abs $ fromEnum x - fromEnum y

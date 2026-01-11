@@ -24,6 +24,7 @@ dependencies:
 - containers
 - mtl
 - text
+- megaparsec
 
 ghc-options:
 - -Wall
@@ -38,6 +39,12 @@ ghc-options:
 
 library:
   source-dirs: src
+  exposed-modules:
+    - Chess
+    - Chess.Cli
+    - Chess.Game
+    - Chess.Notation
+    - Chess.Data
   default-extensions:  
   - OverloadedStrings
 
@@ -62,3 +69,6 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - chess
+    - HUnit
+    - tasty
+    - tasty-hunit
