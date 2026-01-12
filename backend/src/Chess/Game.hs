@@ -106,7 +106,11 @@ postMoveStatus :: Game -> Status
 postMoveStatus game = maybe Playing (Finished . result (playerToMove game)) $ finishedStatus game
 
 legalMoves :: Game -> [Move Identity]
-legalMoves game = attackingMoves (playerToMove game) (board game) ++ nonAttackingMoves (playerToMove game) (board game)
+legalMoves game = filter legal $ attackingMoves player board' ++ nonAttackingMoves player board'
+  where
+    legal move = not . isUnderCheck player $ applyMoveToBoard move board'
+    player = playerToMove game
+    board' = board game
 
 idPair :: (a, b) -> (Identity a, Identity b)
 idPair (a, b) = (Identity a, Identity b)
@@ -120,7 +124,6 @@ nonAttackingMoves player board = do
   lineOfMovement <- linesOfMovement (player, movePiece) fromSquare
   toSquare <- takeWhile unoccupied lineOfMovement
   let move = Move {movePiece, fromSquare = idPair fromSquare, moveType = To, toSquare}
-  guard . not . isUnderCheck player $ applyMoveToBoard move board
   return $ move
   where
     unoccupied space = isNothing $ pieceAt board space
@@ -148,7 +151,6 @@ attackingMoves player board = do
     (toSquare, (ownerOfPiece, _)) <- firstJust (fmapSnd $ pieceAt board) spaces
     guard $ ownerOfPiece == other player
     let move = Move {movePiece, fromSquare = idPair fromSquare, moveType = Takes, toSquare}
-    guard . not . isUnderCheck player $ applyMoveToBoard move board
     return move
   where
     fmapSnd f a = (,) a <$> f a
@@ -248,12 +250,10 @@ applyMoveToBoard move board = Map.insert to (board ! from) (Map.delete from boar
     from = runIdentityPair $ fromSquare move
 
 applyMove :: Game -> Move Identity -> Game
-applyMove (Game {board, playerToMove, castlesAvailable, enPassantSquare, halfMoveClock, fullMoveNumber}) move = Game {board = applyMoveToBoard move board, playerToMove = other player, castlesAvailable, enPassantSquare = enPassantTarget move, halfMoveClock = if halfMoveClockResets then 0 else halfMoveClock + 1, fullMoveNumber = if playerToMove == Black then fullMoveNumber + 1 else fullMoveNumber}
+applyMove (Game {board, playerToMove, castlesAvailable, halfMoveClock, fullMoveNumber}) move = Game {board = applyMoveToBoard move board, playerToMove = other player, castlesAvailable, enPassantSquare = enPassantTarget move, halfMoveClock = if halfMoveClockResets then 0 else halfMoveClock + 1, fullMoveNumber = if playerToMove == Black then fullMoveNumber + 1 else fullMoveNumber}
   where
     player = playerToMove
     halfMoveClockResets = isCapture move || movePiece move == Pawn
-
-
 
 isCapture :: Move f -> Bool
 isCapture move = moveType move == Takes

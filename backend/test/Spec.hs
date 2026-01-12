@@ -1,22 +1,17 @@
-{-# LANGUAGE NamedFieldPuns #-}
-
-import Chess.Data (File (..), Move (..), MoveType (..), PieceType (..), Rank (..))
-import Chess.Game (Player (..), Result (..), fromMoves, play, startingGame)
+import Chess.Data (File (..), MoveType (..), PieceType (..), Rank (..))
+import Chess.Game (fromMoves, startingGame)
 import Chess.Notation
 import Chess.Notation.Parser
-import Chess.Notation (NotatedMove (NotatedMove))
-import Control.Monad.State
-import Data.Maybe (fromJust)
 import Test.Tasty
 import Test.Tasty.HUnit
-import Text.Megaparsec (ParseErrorBundle, Parsec, eof, errorBundlePretty, parse, parseMaybe)
+import Text.Megaparsec (eof, errorBundlePretty, parse)
 
 main :: IO ()
 main =
   defaultMain $
     testGroup
       "All Tests"
-      [ -- testShortGame,
+      [ testShortGame,
         testOneMove,
         testFullMoveParser,
         testMoveParser,
@@ -32,7 +27,7 @@ testShortGame = testCase "shortGame" $ actual @?= expected
     shortGameFen = "rnbqkb1r/pppp1ppp/8/4P3/8/4n2P/PPPNPPP1/R1BQKBNR w KQkq - 1 5"
 
 testOneMove :: TestTree
-testOneMove = testCase "shortGame" $ actual @?= expected
+testOneMove = testCase "oneMove" $ actual @?= expected
   where
     actual = fen <$> fromMoves [Move Pawn (Nothing, Nothing) To (E, Four)] startingGame
     expected = Just shortGameFen

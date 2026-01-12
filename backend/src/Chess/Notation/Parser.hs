@@ -1,21 +1,21 @@
 {-# LANGUAGE NamedFieldPuns #-}
+
 module Chess.Notation.Parser where
 
-import Data.Void (Void)
-import Text.Megaparsec (MonadParsec (try), Parsec, many, token)
+import Chess.Data
 import Chess.Notation
-import Data.Set (Set)
-import qualified Data.Set as Set
+import Control.Applicative (optional, (<|>))
+import Data.List.NonEmpty (NonEmpty ((:|)))
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Chess.Data
+import Data.Maybe (mapMaybe)
+import Data.Set (Set)
+import qualified Data.Set as Set
+import Data.Void (Void)
 import Text.Megaparsec (MonadParsec (try), Parsec, many, token)
 import Text.Megaparsec.Char (char, hspace)
 import Text.Megaparsec.Char.Lexer (decimal)
 import Text.Megaparsec.Error (ErrorItem (..))
-import Control.Applicative (optional, (<|>))
-import Data.List.NonEmpty (NonEmpty ((:|)))
-import Data.Maybe (mapMaybe)
 
 type Stream = String
 
@@ -63,11 +63,13 @@ charMap m = token test expected
     expected = Set.fromList [Tokens (c :| []) | c <- Map.keys m]
 
 piece :: Parser PieceType
-piece = charMap pieceMap <|> pure Pawn where
-  pieceMap =
-    Map.fromList $ mapMaybe f pieceTypes where
-      f Pawn = Nothing
-      f pieceType = Just (pieceTypeChar pieceType, pieceType)
+piece = charMap pieceMap <|> pure Pawn
+  where
+    pieceMap =
+      Map.fromList $ mapMaybe f pieceTypes
+      where
+        f Pawn = Nothing
+        f pieceType = Just (pieceTypeChar pieceType, pieceType)
 
 parseDots :: Parser Dots
 parseDots = lexeme (ThreeDots <$ "..." <|> OneDot <$ ".")
@@ -82,4 +84,3 @@ rank :: Parser Rank
 rank = charMap . Map.fromList $ map (\rank -> (rankChar rank, rank)) ranks
 
 data Dots = OneDot | ThreeDots
-  
