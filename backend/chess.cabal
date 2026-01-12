@@ -29,6 +29,7 @@ library
       Chess.Cli
       Chess.Game
       Chess.Notation
+      Chess.Notation.Parser
       Chess.Data
   other-modules:
       Chess.Lib

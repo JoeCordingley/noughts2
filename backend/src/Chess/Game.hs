@@ -82,10 +82,7 @@ disambiguate game move = filter (matches move) $ legalMoves game
 type GetAction f = Game -> f Action
 
 startingGame :: Game
-startingGame = Game {board = startingBoard, playerToMove = White, castlesAvailable = allCastles, enPassantSquare = Nothing, halfMoveClock = 0, fullMoveNumber = 0}
-
-allCastles :: Set (Player, CastleLocation)
-allCastles = Set.fromList $ (,) <$> [White, Black] <*> [Kingside, Queenside]
+startingGame = Game {board = startingBoard, playerToMove = White, castlesAvailable = Set.fromList allCastles, enPassantSquare = Nothing, halfMoveClock = 0, fullMoveNumber = 1}
 
 fromMoves :: [Move Maybe] -> Game -> Maybe Game
 fromMoves = foldr f pure
@@ -225,12 +222,6 @@ enumFromByIncrement a inc = map toEnum [init, init + inc .. fromEnum $ maxBound 
 allSpaces :: [Square]
 allSpaces = (,) <$> files <*> ranks
 
-ranks :: [Rank]
-ranks = [One, Two, Three, Four, Five, Six, Seven, Eight]
-
-files :: [File]
-files = [A, B, C, D, E, F, G, H]
-
 piecePositions :: Player -> Board -> [(PieceType, Square)]
 piecePositions player board = do
   space <- allSpaces
@@ -257,13 +248,24 @@ applyMoveToBoard move board = Map.insert to (board ! from) (Map.delete from boar
     from = runIdentityPair $ fromSquare move
 
 applyMove :: Game -> Move Identity -> Game
-applyMove (Game {board, playerToMove, castlesAvailable, enPassantSquare, halfMoveClock, fullMoveNumber}) move = Game {board = applyMoveToBoard move board, playerToMove = other player, castlesAvailable, halfMoveClock = if halfMoveClockResets then 0 else halfMoveClock + 1, fullMoveNumber = if playerToMove == Black then fullMoveNumber + 1 else fullMoveNumber}
+applyMove (Game {board, playerToMove, castlesAvailable, enPassantSquare, halfMoveClock, fullMoveNumber}) move = Game {board = applyMoveToBoard move board, playerToMove = other player, castlesAvailable, enPassantSquare = enPassantTarget move, halfMoveClock = if halfMoveClockResets then 0 else halfMoveClock + 1, fullMoveNumber = if playerToMove == Black then fullMoveNumber + 1 else fullMoveNumber}
   where
     player = playerToMove
     halfMoveClockResets = isCapture move || movePiece move == Pawn
+
+
 
 isCapture :: Move f -> Bool
 isCapture move = moveType move == Takes
 
 firstJust :: (a -> Maybe b) -> [a] -> Maybe b
 firstJust f = fmap getFirst . foldMap (fmap First . f)
+
+enPassantTarget :: Move Identity -> Maybe Square
+enPassantTarget (Move {movePiece, fromSquare, toSquare}) = case (movePiece, fromRank, toRank) of
+  (Pawn, Two, Four) -> Just (file, Three)
+  (Pawn, Seven, Five) -> Just (file, Six)
+  _ -> Nothing
+  where
+    (Identity file, Identity fromRank) = fromSquare
+    (_, toRank) = toSquare

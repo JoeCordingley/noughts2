@@ -3,6 +3,7 @@
 import Chess.Data (File (..), Move (..), MoveType (..), PieceType (..), Rank (..))
 import Chess.Game (Player (..), Result (..), fromMoves, play, startingGame)
 import Chess.Notation
+import Chess.Notation.Parser
 import Chess.Notation (NotatedMove (NotatedMove))
 import Control.Monad.State
 import Data.Maybe (fromJust)
@@ -15,7 +16,8 @@ main =
   defaultMain $
     testGroup
       "All Tests"
-      [ testShortGame,
+      [ -- testShortGame,
+        testOneMove,
         testFullMoveParser,
         testMoveParser,
         testMoveTextParser
@@ -28,6 +30,13 @@ testShortGame = testCase "shortGame" $ actual @?= expected
     expected = Just shortGameFen
     shortGameMoves = concatMap flattenMove shortGameFullMoves
     shortGameFen = "rnbqkb1r/pppp1ppp/8/4P3/8/4n2P/PPPNPPP1/R1BQKBNR w KQkq - 1 5"
+
+testOneMove :: TestTree
+testOneMove = testCase "shortGame" $ actual @?= expected
+  where
+    actual = fen <$> fromMoves [Move Pawn (Nothing, Nothing) To (E, Four)] startingGame
+    expected = Just shortGameFen
+    shortGameFen = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
 
 shortGameFullMoves :: [FullMove]
 shortGameFullMoves =

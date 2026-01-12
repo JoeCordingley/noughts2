@@ -2,28 +2,22 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
-module Chess.Notation (moveText, FullMove (..), fen, Move (..), move, fullMove, piece, rank, file, square, Result (..), MoveText (..), flattenMove, Parser, NotatedMove (..), fromSquare) where
+module Chess.Notation (FullMove (..), fen, Move (..), Result (..), MoveText (..), flattenMove, NotatedMove (..), fromSquare, fileChar, rankChar, pieceTypeChar) where
 
 import Chess.Data
 import Control.Applicative (optional, (<|>))
+import Data.Char (toLower)
 import Data.Foldable (Foldable (toList))
 import Data.Function ((&))
+import Data.List as List (intercalate, singleton)
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust, fromMaybe)
+import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Void (Void)
-import Text.Megaparsec (MonadParsec (try), Parsec, many, token)
-import Text.Megaparsec.Char (char, hspace)
-import Text.Megaparsec.Char.Lexer (decimal)
-import Text.Megaparsec.Error (ErrorItem (..))
 
-type Stream = String
-
-type Error = Void
-
-type Parser a = Parsec Error Stream a
 
 flattenMove :: FullMove -> [Move Maybe]
 flattenMove (FullMove _ white black) = (getNotatedMove <$> toList white) ++ (getNotatedMove <$> toList black)
@@ -37,26 +31,10 @@ notateMoveType Takes = "x"
 notateMoveType To = ""
 
 notateRank :: Rank -> String
-notateRank rank = case rank of
-  One -> "1"
-  Two -> "2"
-  Three -> "3"
-  Four -> "4"
-  Five -> "5"
-  Six -> "6"
-  Seven -> "7"
-  Eight -> "8"
+notateRank = List.singleton . rankChar
 
 notateFile :: File -> String
-notateFile file = case file of
-  A -> "a"
-  B -> "b"
-  C -> "c"
-  D -> "d"
-  E -> "e"
-  F -> "f"
-  G -> "g"
-  H -> "h"
+notateFile file = List.singleton $ fileChar file
 
 notatePiece :: PieceType -> String
 notatePiece piece = case piece of
@@ -80,101 +58,82 @@ data FullMove = FullMove
   }
   deriving (Eq, Show)
 
-data MoveText = MoveText {moves :: [FullMove], result :: Maybe Result} deriving (Eq, Show)
+data MoveText = MoveText [FullMove] (Maybe Result) deriving (Eq, Show)
 
 data Result = WinForWhite | WinForBlack | Draw deriving (Eq, Show)
 
-moveText :: Parser MoveText
-moveText = MoveText <$> many (try fullMove) <*> optional parseResult
 
-parseResult :: Parser Result
-parseResult = WinForWhite <$ "1-0" <|> WinForBlack <$ "0-1" <|> Draw <$ "1/2-1/2"
+fileChar :: File -> Char
+fileChar file = case file of
+  A -> 'a'
+  B -> 'b'
+  C -> 'c'
+  D -> 'd'
+  E -> 'e'
+  F -> 'f'
+  G -> 'g'
+  H -> 'h'
 
-fullMove :: Parser FullMove
-fullMove = do
-  n <- decimal
-  dots <- parseDots
-  white <- case dots of
-    OneDot -> Just <$> lexeme move
-    ThreeDots -> pure Nothing
-  black <- optional $ lexeme move
-  return $ FullMove n white black
 
-move :: Parser NotatedMove
-move = try disambiguated <|> simple
+rankChar :: Rank -> Char
+rankChar rank = case rank of
+  One -> '1'
+  Two -> '2'
+  Three -> '3'
+  Four -> '4'
+  Five -> '5'
+  Six -> '6'
+  Seven -> '7'
+  Eight -> '8'
+
+pieceTypeChar :: PieceType -> Char
+pieceTypeChar piece = case piece of
+  Knight -> 'N'
+  Rook -> 'R'
+  Bishop -> 'B'
+  Queen -> 'Q'
+  King -> 'K'
+  Pawn -> 'P'
+
+pieceChar :: Piece -> Char
+pieceChar (White, piece) = pieceTypeChar piece
+pieceChar (Black, piece) = toLower $ pieceTypeChar piece
+
+activeColour :: Player -> String
+activeColour White = "w"
+activeColour Black = "b"
+
+castlingAvailability :: Set CastleLocation -> String
+castlingAvailability s = if Set.null s then "-" else concatMap castleChar allCastles
   where
-    disambiguated = NotatedMove <$> (Move <$> piece <*> fuzzySquare <*> parseMoveType <*> square)
-    simple = move' <$> piece <*> parseMoveType <*> square
-      where
-        move' movePiece moveType toSquare = NotatedMove $ Move {movePiece, fromSquare = (Nothing, Nothing), moveType, toSquare}
+    castleChar :: CastleLocation -> String
+    castleChar (White, Kingside) = "K"
+    castleChar (White, Queenside) = "Q"
+    castleChar (Black, Kingside) = "k"
+    castleChar (Black, Queenside) = "q"
 
-fuzzySquare :: Parser (Maybe File, Maybe Rank)
-fuzzySquare = (,) <$> optional file <*> optional rank
+data FenElement = NumberOfSquares Int | FenPiece Piece
 
-parseMoveType :: Parser MoveType
-parseMoveType = Takes <$ "x" <|> pure To
-
-square :: Parser Square
-square = (,) <$> file <*> rank
-
-charMap :: Map Char a -> Parser a
-charMap m = token test expected
-  where
-    test c = Map.lookup c m
-    expected = Set.fromList [Tokens (c :| []) | c <- Map.keys m]
-
-fileMap :: Map Char File
-fileMap =
-  Map.fromList
-    [ ('a', A),
-      ('b', B),
-      ('c', C),
-      ('d', D),
-      ('e', E),
-      ('f', F),
-      ('g', G),
-      ('h', H)
-    ]
-
-rankMap :: Map Char Rank
-rankMap =
-  Map.fromList
-    [ ('1', One),
-      ('2', Two),
-      ('3', Three),
-      ('4', Four),
-      ('5', Five),
-      ('6', Six),
-      ('7', Seven),
-      ('8', Eight)
-    ]
-
-pieceMap :: Map Char PieceType
-pieceMap =
-  Map.fromList
-    [ ('N', Knight),
-      ('R', Rook),
-      ('B', Bishop),
-      ('Q', Queen),
-      ('K', King)
-    ]
-
-piece :: Parser PieceType
-piece = charMap pieceMap <|> pure Pawn
-
-file :: Parser File
-file = charMap fileMap
-
-rank :: Parser Rank
-rank = charMap rankMap
-
-data Dots = OneDot | ThreeDots
-
-parseDots :: Parser Dots
-parseDots = lexeme (ThreeDots <$ "..." <|> OneDot <$ ".")
-
-lexeme :: Parser a -> Parser a
-lexeme p = p <* hspace
+instance Show FenElement where
+  show (NumberOfSquares n) = show n
+  show (FenPiece piece) = [pieceChar piece]
 
 fen :: Game -> String
-fen = undefined
+fen (Game {board, playerToMove, castlesAvailable, enPassantSquare, halfMoveClock, fullMoveNumber}) = intercalate " " [piecePlacement board, activeColour playerToMove, castlingAvailability castlesAvailable, square enPassantSquare, show halfMoveClock, show fullMoveNumber]
+
+square :: Maybe Square -> String
+square Nothing = "-"
+square (Just (file, rank)) = [fileChar file, rankChar rank]
+
+piecePlacement :: Board -> String
+piecePlacement board = intercalate "/" $ map rankPlacement (reverse ranks)
+  where
+    rankPlacement :: Rank -> String
+    rankPlacement rank = concatMap show $ foldr f [] files
+      where
+        f :: File -> [FenElement] -> [FenElement]
+        f file acc = case Map.lookup (file, rank) board of
+          Just piece -> (FenPiece piece) : acc
+          Nothing -> case acc of
+            NumberOfSquares n : rest -> NumberOfSquares (n + 1) : rest
+            _ -> NumberOfSquares 1 : acc
