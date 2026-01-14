@@ -1,5 +1,8 @@
-module Chess.Data (Board, File (..), PieceType (..), Rank (..), Square, Player (..), Piece, Move (..), MoveType (..), Game (..), CastleLocation (..), files, ranks, pieceTypes, allCastles, CastleSide(..)) where
+{-# LANGUAGE NamedFieldPuns #-}
 
+module Chess.Data (Board, File (..), PieceType (..), Rank (..), Square, Player (..), Piece, Move (..), MoveType (..), Game (..), CastleLocation (..), files, ranks, pieceTypes, allCastles, CastleSide (..), moveIdentity, fromSquareIdentity) where
+
+import Control.Monad.Identity (Identity (Identity))
 import Data.Map (Map)
 import Data.Set (Set)
 
@@ -55,11 +58,19 @@ data Player
   | Black
   deriving (Show, Eq, Ord)
 
-data Move f = Move {movePiece :: PieceType, fromSquare :: (f File, f Rank), moveType :: MoveType, toSquare :: Square}
+data Move f = Move {movePiece :: PieceType, fromSquareF :: (f File, f Rank), moveType :: MoveType, toSquare :: Square}
+
+moveIdentity :: PieceType -> Square -> MoveType -> Square -> Move Identity
+moveIdentity movePiece (fromFile, fromRank) moveType toSquare = Move {movePiece, fromSquareF, moveType, toSquare}
+  where
+    fromSquareF = (Identity fromFile, Identity fromRank)
+
+fromSquareIdentity :: (Identity File, Identity Rank) -> Square
+fromSquareIdentity (Identity file, Identity rank) = (file, rank)
 
 data MoveType = Takes | To deriving (Eq)
 
-data Game = Game {board :: Board, playerToMove :: Player, castlesAvailable :: Set CastleLocation, enPassantSquare :: Maybe Square, halfMoveClock :: Int, fullMoveNumber :: Int}
+data Game = Game {gameBoard :: Board, playerToMove :: Player, castlesAvailable :: Set CastleLocation, enPassantSquare :: Maybe Square, halfMoveClock :: Int, fullMoveNumber :: Int}
 
 data CastleSide = Kingside | Queenside deriving (Eq, Ord)
 

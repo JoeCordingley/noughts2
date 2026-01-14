@@ -21,7 +21,7 @@ playGame = play getMoveCli >>= printResult . fst
 
 getMoveCli :: GetAction IO
 getMoveCli game = do
-  printBoard $ board game
+  printBoard $ gameBoard game
   prompt (readValidMove game) "not a valid move"
 
 interleave :: a -> [a] -> [a]

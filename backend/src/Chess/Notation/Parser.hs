@@ -45,7 +45,7 @@ move = try disambiguated <|> simple
     disambiguated = NotatedMove <$> (Move <$> piece <*> fuzzySquare <*> parseMoveType <*> square)
     simple = move' <$> piece <*> parseMoveType <*> square
       where
-        move' movePiece moveType toSquare = NotatedMove $ Move {movePiece, fromSquare = (Nothing, Nothing), moveType, toSquare}
+        move' movePiece moveType toSquare = NotatedMove $ Move {movePiece, fromSquareF = (Nothing, Nothing), moveType, toSquare}
 
 fuzzySquare :: Parser (Maybe File, Maybe Rank)
 fuzzySquare = (,) <$> optional file <*> optional rank
