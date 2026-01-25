@@ -37,12 +37,12 @@ fullMove = do
   return $ FullMove n white black
 
 move :: Parser NotatedMove
-move = NotatedMove <$> (try disambiguated <|> simple)
+move = (try disambiguated <|> simple)
   where
-    disambiguated = Move <$> pieceType <*> fuzzySquare <*> parseMoveType <*> square <*> optional appendation
+    disambiguated = NotatedMove <$> pieceType <*> fuzzySquare <*> parseMoveType <*> square <*> optional appendation
     simple = move' <$> pieceType <*> parseMoveType <*> square <*> optional appendation
       where
-        move' movePiece moveType toSquare checkStatus = Move {movePiece, fromSquare = (Nothing, Nothing), moveType, toSquare, checkStatus}
+        move' notatedMovePiece moveType notatedToSquare notatedCheckStatus = NotatedMove {notatedMovePiece, maybeFrom = (Nothing, Nothing), moveType, notatedToSquare, notatedCheckStatus}
 
 appendation :: Parser CheckType
 appendation = (Check <$ char '+') <|> (Mate <$ char '#')
@@ -79,7 +79,7 @@ data Dots = OneDot | ThreeDots
 fen :: Parser Game
 fen = Game <$> lexeme piecePlacement <*> lexeme activeColourParser <*> lexeme castlingAvailability <*> lexeme enPassantTargetSquare <*> lexeme halfMoveClock <*> lexeme fullMoveNumber
   where
-    piecePlacement = fmap (Map.fromList . concat) . sequence . intersperse ([] <$ char '/') . map parseRank $ reverse ranks
+    piecePlacement = fmap (fromPieces . concat) . sequence . intersperse ([] <$ char '/') . map parseRank $ reverse ranks
     parseRank rank = parseRank' files
       where
         parseRank' [] = pure []

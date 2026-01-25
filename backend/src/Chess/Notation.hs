@@ -12,13 +12,11 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 
-flattenMove :: FullMove -> [AmbiguousMove]
-flattenMove (FullMove _ white black) = (getNotatedMove <$> toList white) ++ (getNotatedMove <$> toList black)
-
-newtype NotatedMove = NotatedMove {getNotatedMove :: AmbiguousMove}
+flattenMove :: FullMove -> [NotatedMove]
+flattenMove (FullMove _ white black) = toList white ++ toList black
 
 notateMove :: NotatedMove -> String
-notateMove (NotatedMove (Move movePiece (fromFile, fromRank) moveType (toFile, toRank) appendation)) = notatePiece movePiece <> foldMap notateFile fromFile <> foldMap notateRank fromRank <> notateMoveType moveType <> notateFile toFile <> notateRank toRank <> foldMap notateAppendation appendation
+notateMove (NotatedMove movePiece (fromFile, fromRank) moveType (toFile, toRank) appendation) = notatePiece movePiece <> foldMap notateFile fromFile <> foldMap notateRank fromRank <> notateMoveType moveType <> notateFile toFile <> notateRank toRank <> foldMap notateAppendation appendation
 
 notateAppendation :: CheckType -> String
 notateAppendation Check = "+"
@@ -40,9 +38,6 @@ notatePiece piece = [pieceTypeChar piece]
 
 instance Show NotatedMove where
   show = notateMove
-
-instance Eq NotatedMove where
-  NotatedMove (Move p1 f1 x1 t1 a1) == NotatedMove (Move p2 f2 x2 t2 a2) = (p1 == p2) && (f1 == f2) && (x1 == x2) && (t1 == t2) && (a1 == a2)
 
 data FullMove = FullMove
   { moveNumber :: Int,
@@ -132,11 +127,11 @@ square Nothing = "-"
 square (Just (file, rank)) = [fileChar file, rankChar rank]
 
 piecePlacement :: Board -> String
-piecePlacement board = intercalate "/" $ map rankPlacement (reverse ranks)
+piecePlacement (Board {squares}) = intercalate "/" $ map rankPlacement (reverse ranks)
   where
     rankPlacement rank = concatMap show $ foldr f [] files
       where
-        f file acc = case (Map.lookup (file, rank) board, acc) of
+        f file acc = case (Map.lookup (file, rank) squares, acc) of
           (Just piece, _) -> FenPiece piece : acc
           (Nothing, NumberOfSquares n : rest) -> NumberOfSquares (n + 1) : rest
           (Nothing, _) -> NumberOfSquares 1 : acc

@@ -41,7 +41,6 @@ library:
   source-dirs: src
   exposed-modules:
     - Chess
-    - Chess.Cli
     - Chess.Game
     - Chess.Notation
     - Chess.Notation.Parser

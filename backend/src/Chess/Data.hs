@@ -1,12 +1,37 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
-module Chess.Data (Board, File (..), PieceType (..), Rank (..), Square, Player (..), Piece, Move (..), MoveType (..), Game (..), CastleLocation, files, ranks, pieceTypes, allCastles, CastleSide (..), pieces, CheckType (..), AmbiguousMove, FullyDefinedMove) where
+module Chess.Data where
 
-import Control.Monad.Identity (Identity (Identity))
 import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Set (Set)
 
-type Board = Map Square Piece
+data Board = Board {squares :: Map Square Piece, whitePieceLocations :: Map Square PieceType, blackPieceLocations :: Map Square PieceType} deriving (Eq, Show)
+
+applyMoveToBoard :: Player -> Move -> Board -> Board
+applyMoveToBoard player (Move {fromSquare, toSquare, movePiece}) (Board {squares, whitePieceLocations, blackPieceLocations}) = Board {squares = squares', whitePieceLocations = whitePieceLocations', blackPieceLocations = blackPieceLocations'}
+  where
+    update a = Map.insert toSquare a . Map.delete fromSquare
+    delete = Map.delete toSquare
+    squares' = update (player, movePiece) squares
+    whitePieceLocations' = forPlayer (update movePiece) delete player whitePieceLocations
+    blackPieceLocations' = forPlayer delete (update movePiece) player blackPieceLocations
+
+forPlayer :: a -> a -> Player -> a
+forPlayer white black player = case player of
+  White -> white
+  Black -> black
+
+pieceLocations :: Player -> Board -> Map Square PieceType
+pieceLocations = forPlayer whitePieceLocations blackPieceLocations
+
+fromPieces :: [(Square, Piece)] -> Board
+fromPieces pieces = Board {squares, whitePieceLocations, blackPieceLocations}
+  where
+    squares = Map.fromList pieces
+    whitePieceLocations = pieceLocations White
+    blackPieceLocations = pieceLocations Black
+    pieceLocations player = Map.fromList [(square, pieceType) | (square, (player', pieceType)) <- pieces, player' == player]
 
 data File
   = A
@@ -64,11 +89,11 @@ data Player
   | Black
   deriving (Show, Eq, Ord)
 
-data Move a = Move {movePiece :: PieceType, fromSquare :: a, moveType :: MoveType, toSquare :: Square, checkStatus :: Maybe CheckType}
+-- data Move a = Move {movePiece :: PieceType, fromSquare :: a, moveType :: MoveType, toSquare :: Square, checkStatus :: Maybe CheckType}
 
-type FullyDefinedMove = Move Square
+data Move = Move {movePiece :: PieceType, fromSquare :: Square, pieceUnderAttack :: Maybe PieceType, toSquare :: Square, checkStatus :: Maybe CheckType} deriving (Show)
 
-type AmbiguousMove = Move AmbiguousSquare
+data NotatedMove = NotatedMove {notatedMovePiece :: PieceType, maybeFrom :: (Maybe File, Maybe Rank), moveType :: MoveType, notatedToSquare :: Square, notatedCheckStatus :: Maybe CheckType} deriving (Eq)
 
 type AmbiguousSquare = (Maybe File, Maybe Rank)
 
@@ -79,7 +104,7 @@ data CheckType = Check | Mate deriving (Eq, Show)
 --  where
 --    fromSquare = (Identity fromFile, Identity fromRank)
 
-data MoveType = Takes | To deriving (Eq)
+data MoveType = Takes | To deriving (Eq, Show)
 
 data Game = Game {gameBoard :: Board, playerToMove :: Player, castlesAvailable :: Set CastleLocation, enPassantSquare :: Maybe Square, halfMoveClock :: Int, fullMoveNumber :: Int} deriving (Eq, Show)
 
