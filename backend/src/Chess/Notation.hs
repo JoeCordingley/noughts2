@@ -1,9 +1,10 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Chess.Notation (FullMove (..), fen, Move (..), Result (..), MoveText (..), flattenMove, NotatedMove (..), fileChar, rankChar, pieceTypeChar) where
+module Chess.Notation (FullMove (..), fen, Move (..), Result (..), MoveText (..), flattenMove, NotatedMove (..), fileChar, rankChar, rankChars, fileChars, pieceTypeChar, pieceTypeChars, pieceChars, FenElement (..), castleChar, castleChars, activeColourChar) where
 
 import Chess.Data
+import Chess.Lib (withInput)
 import Data.Char (toLower)
 import Data.Foldable (Foldable (toList))
 import Data.List as List (intercalate, singleton)
@@ -11,13 +12,17 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 
-flattenMove :: FullMove -> [Move Maybe]
+flattenMove :: FullMove -> [AmbiguousMove]
 flattenMove (FullMove _ white black) = (getNotatedMove <$> toList white) ++ (getNotatedMove <$> toList black)
 
-newtype NotatedMove = NotatedMove {getNotatedMove :: Move Maybe}
+newtype NotatedMove = NotatedMove {getNotatedMove :: AmbiguousMove}
 
-notateMove :: Move Maybe -> String
-notateMove (Move movePiece (fromFile, fromRank) moveType (toFile, toRank)) = notatePiece movePiece <> foldMap notateFile fromFile <> foldMap notateRank fromRank <> notateMoveType moveType <> notateFile toFile <> notateRank toRank
+notateMove :: NotatedMove -> String
+notateMove (NotatedMove (Move movePiece (fromFile, fromRank) moveType (toFile, toRank) appendation)) = notatePiece movePiece <> foldMap notateFile fromFile <> foldMap notateRank fromRank <> notateMoveType moveType <> notateFile toFile <> notateRank toRank <> foldMap notateAppendation appendation
+
+notateAppendation :: CheckType -> String
+notateAppendation Check = "+"
+notateAppendation Mate = "#"
 
 notateMoveType :: MoveType -> String
 notateMoveType Takes = "x"
@@ -34,10 +39,10 @@ notatePiece Pawn = ""
 notatePiece piece = [pieceTypeChar piece]
 
 instance Show NotatedMove where
-  show (NotatedMove move) = notateMove move
+  show = notateMove
 
 instance Eq NotatedMove where
-  NotatedMove (Move p1 f1 x1 t1) == NotatedMove (Move p2 f2 x2 t2) = (p1 == p2) && (f1 == f2) && (x1 == x2) && (t1 == t2)
+  NotatedMove (Move p1 f1 x1 t1 a1) == NotatedMove (Move p2 f2 x2 t2 a2) = (p1 == p2) && (f1 == f2) && (x1 == x2) && (t1 == t2) && (a1 == a2)
 
 data FullMove = FullMove
   { moveNumber :: Int,
@@ -61,6 +66,9 @@ fileChar file = case file of
   G -> 'g'
   H -> 'h'
 
+fileChars :: [(File, Char)]
+fileChars = map (withInput fileChar) files
+
 rankChar :: Rank -> Char
 rankChar rank = case rank of
   One -> '1'
@@ -72,6 +80,9 @@ rankChar rank = case rank of
   Seven -> '7'
   Eight -> '8'
 
+rankChars :: [(Rank, Char)]
+rankChars = map (withInput rankChar) ranks
+
 pieceTypeChar :: PieceType -> Char
 pieceTypeChar piece = case piece of
   Knight -> 'N'
@@ -81,21 +92,31 @@ pieceTypeChar piece = case piece of
   King -> 'K'
   Pawn -> 'P'
 
+pieceTypeChars :: [(PieceType, Char)]
+pieceTypeChars = map (withInput pieceTypeChar) pieceTypes
+
 pieceChar :: Piece -> Char
 pieceChar (White, piece) = pieceTypeChar piece
 pieceChar (Black, piece) = toLower $ pieceTypeChar piece
 
-activeColour :: Player -> String
-activeColour White = "w"
-activeColour Black = "b"
+pieceChars :: [((Player, PieceType), Char)]
+pieceChars = map (withInput pieceChar) pieces
+
+activeColourChar :: Player -> Char
+activeColourChar White = 'w'
+activeColourChar Black = 'b'
 
 castlingAvailability :: Set CastleLocation -> String
 castlingAvailability s = if Set.null s then "-" else map castleChar allCastles
-  where
-    castleChar (White, Kingside) = 'K'
-    castleChar (White, Queenside) = 'Q'
-    castleChar (Black, Kingside) = 'k'
-    castleChar (Black, Queenside) = 'q'
+
+castleChar :: (Player, CastleSide) -> Char
+castleChar (White, Kingside) = 'K'
+castleChar (White, Queenside) = 'Q'
+castleChar (Black, Kingside) = 'k'
+castleChar (Black, Queenside) = 'q'
+
+castleChars :: [((Player, CastleSide), Char)]
+castleChars = map (withInput castleChar) allCastles
 
 data FenElement = NumberOfSquares Int | FenPiece Piece
 
@@ -104,7 +125,7 @@ instance Show FenElement where
   show (FenPiece piece) = [pieceChar piece]
 
 fen :: Game -> String
-fen (Game {gameBoard, playerToMove, castlesAvailable, enPassantSquare, halfMoveClock, fullMoveNumber}) = unwords [piecePlacement gameBoard, activeColour playerToMove, castlingAvailability castlesAvailable, square enPassantSquare, show halfMoveClock, show fullMoveNumber]
+fen (Game {gameBoard, playerToMove, castlesAvailable, enPassantSquare, halfMoveClock, fullMoveNumber}) = unwords [piecePlacement gameBoard, singleton (activeColourChar playerToMove), castlingAvailability castlesAvailable, square enPassantSquare, show halfMoveClock, show fullMoveNumber]
 
 square :: Maybe Square -> String
 square Nothing = "-"

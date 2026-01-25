@@ -1,7 +1,7 @@
-import Chess.Data (File (..), MoveType (..), PieceType (..), Rank (..))
+import Chess.Data (CheckType (..), File (..), MoveType (..), PieceType (..), Rank (..))
 import Chess.Game (fromMoves, startingGame)
-import Chess.Notation
-import Chess.Notation.Parser
+import Chess.Notation as Notation
+import Chess.Notation.Parser as Parser
 import Test.Tasty
 import Test.Tasty.HUnit
 import Text.Megaparsec (eof, errorBundlePretty, parse)
@@ -15,13 +15,14 @@ main =
         testOneMove,
         testFullMoveParser,
         testMoveParser,
-        testMoveTextParser
+        testMoveTextParser,
+        testFenParser
       ]
 
 testShortGame :: TestTree
 testShortGame = testCase "shortGame" $ actual @?= expected
   where
-    actual = fen <$> fromMoves shortGameMoves startingGame
+    actual = Notation.fen <$> fromMoves shortGameMoves startingGame
     expected = Just shortGameFen
     shortGameMoves = concatMap flattenMove shortGameFullMoves
     shortGameFen = "rnbqkb1r/pppp1ppp/8/4P3/8/4n2P/PPPNPPP1/R1BQKBNR w KQkq - 1 5"
@@ -29,16 +30,16 @@ testShortGame = testCase "shortGame" $ actual @?= expected
 testOneMove :: TestTree
 testOneMove = testCase "oneMove" $ actual @?= expected
   where
-    actual = fen <$> fromMoves [Move Pawn (Nothing, Nothing) To (E, Four)] startingGame
+    actual = Notation.fen <$> fromMoves [Move Pawn (Nothing, Nothing) To (E, Four) Nothing] startingGame
     expected = Just shortGameFen
     shortGameFen = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
 
 shortGameFullMoves :: [FullMove]
 shortGameFullMoves =
-  [ FullMove 1 (Just $ NotatedMove $ Move Pawn (Nothing, Nothing) To (D, Four)) (Just $ NotatedMove $ Move Knight (Nothing, Nothing) To (F, Six)),
-    FullMove 2 (Just $ NotatedMove $ Move Knight (Nothing, Nothing) To (D, Two)) (Just $ NotatedMove $ Move Pawn (Nothing, Nothing) To (E, Five)),
-    FullMove 3 (Just $ NotatedMove $ Move Pawn (Just D, Nothing) Takes (E, Five)) (Just $ NotatedMove $ Move Knight (Nothing, Nothing) To (G, Four)),
-    FullMove 4 (Just $ NotatedMove $ Move Pawn (Nothing, Nothing) To (H, Three)) (Just $ NotatedMove $ Move Knight (Nothing, Nothing) To (E, Three))
+  [ FullMove 1 (Just $ NotatedMove (Move Pawn (Nothing, Nothing) To (D, Four) Nothing)) (Just $ NotatedMove (Move Knight (Nothing, Nothing) To (F, Six) Nothing)),
+    FullMove 2 (Just $ NotatedMove (Move Knight (Nothing, Nothing) To (D, Two) Nothing)) (Just $ NotatedMove (Move Pawn (Nothing, Nothing) To (E, Five) Nothing)),
+    FullMove 3 (Just $ NotatedMove (Move Pawn (Just D, Nothing) Takes (E, Five) Nothing)) (Just $ NotatedMove (Move Knight (Nothing, Nothing) To (G, Four) Nothing)),
+    FullMove 4 (Just $ NotatedMove (Move Pawn (Nothing, Nothing) To (H, Three) Nothing)) (Just $ NotatedMove (Move Knight (Nothing, Nothing) To (E, Three) Nothing))
   ]
 
 testMoveTextParser :: TestTree
@@ -62,21 +63,29 @@ testFullMoveParser :: TestTree
 testFullMoveParser = testCase "fullMove" $ actual @?= expected
   where
     expected = FullMove 1 (Just whiteMove) (Just blackMove)
-    whiteMove = NotatedMove $ Move Pawn (Nothing, Nothing) To (D, Four)
-    blackMove = NotatedMove $ Move Knight (Nothing, Nothing) To (F, Six)
+    whiteMove = NotatedMove (Move Pawn (Nothing, Nothing) To (D, Four) Nothing)
+    blackMove = NotatedMove (Move Knight (Nothing, Nothing) To (F, Six) Nothing)
     actual = parseShouldSucceed fullMove "1.d4 Nf6 "
 
 testMoveParser :: TestTree
 testMoveParser = testGroup "test move" $ map moveTest moveCases
   where
     moveCases =
-      [ ("d4", Move Pawn (Nothing, Nothing) To (D, Four)),
-        ("Nf6", Move Knight (Nothing, Nothing) To (F, Six)),
-        ("dxe5", Move Pawn (Just D, Nothing) Takes (E, Five)),
-        ("Rdf8", Move Rook (Just D, Nothing) To (F, Eight)),
-        ("R1a3", Move Rook (Nothing, Just One) To (A, Three)),
-        ("Qh4e1", Move Queen (Just H, Just Four) To (E, One))
+      [ ("d4", NotatedMove (Move Pawn (Nothing, Nothing) To (D, Four) Nothing)),
+        ("Nf6", NotatedMove (Move Knight (Nothing, Nothing) To (F, Six) Nothing)),
+        ("dxe5", NotatedMove (Move Pawn (Just D, Nothing) Takes (E, Five) Nothing)),
+        ("Rdf8", NotatedMove (Move Rook (Just D, Nothing) To (F, Eight) Nothing)),
+        ("R1a3", NotatedMove (Move Rook (Nothing, Just One) To (A, Three) Nothing)),
+        ("Qh4e1", NotatedMove (Move Queen (Just H, Just Four) To (E, One) Nothing)),
+        ("R1a3+", NotatedMove (Move Rook (Nothing, Just One) To (A, Three) (Just Check))),
+        ("R1a3#", NotatedMove (Move Rook (Nothing, Just One) To (A, Three) (Just Mate)))
       ]
-    moveTest (string, expected) = testCase string $ actual @?= NotatedMove expected
+    moveTest (string, expected) = testCase string $ actual @?= expected
       where
         actual = parseShouldSucceed move string
+
+testFenParser :: TestTree
+testFenParser = testCase "openingBoard" $ actual @?= expected
+  where
+    expected = startingGame
+    actual = parseShouldSucceed Parser.fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"

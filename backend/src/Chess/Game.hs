@@ -7,7 +7,7 @@ module Chess.Game (play, GetAction, Board, Result (..), Player (..), Square, Ran
 import Chess.Data
 import Chess.Lib (singletonMaybe)
 import Control.Monad (guard)
-import Data.Functor.Identity (Identity)
+import Data.Functor.Identity (Identity (..))
 import Data.List (singleton)
 import Data.Map ((!))
 import qualified Data.Map as Map
@@ -28,7 +28,7 @@ data EndStatus
   = Checkmate
   | Stalemate
 
-data Action = MoveAction (Move Identity) | Resign
+data Action = MoveAction FullyDefinedMove | Resign
 
 play :: (Monad f) => GetAction f -> f (Result, Game)
 play getAction = play' startingGame
@@ -62,25 +62,22 @@ playMove getAction game = g <$> getAction game
     g Resign = (statusResigned, game) where statusResigned = Finished . Winner . other $ playerToMove game
     f newGame = (postMoveStatus newGame, newGame)
 
-disambiguate :: Game -> Move Maybe -> [Move Identity]
+disambiguate :: Game -> AmbiguousMove -> [FullyDefinedMove]
 disambiguate game move = filter (matches move) $ legalMoves game
   where
-    matches (Move pieceType (maybeOriginFile, maybeOriginRank) moveType' destination) move =
-      movePiece move
-        == pieceType
-        && moveType'
-          == moveType move
-        && toSquare move
-          == destination
-        && all (== (fst . fromSquareIdentity . fromSquareF $ move)) maybeOriginFile
-        && all (== (snd . fromSquareIdentity . fromSquareF $ move)) maybeOriginRank
+    matches (Move p1 (maybeOriginFile, maybeOriginRank) x1 d1 _) (Move p2 (of2, or2) x2 d2 _) =
+      p1 == p2
+        && x1 == x2
+        && d1 == d2
+        && all (== of2) maybeOriginFile
+        && all (== or2) maybeOriginRank
 
 type GetAction f = Game -> f Action
 
 startingGame :: Game
 startingGame = Game {gameBoard = startingBoard, playerToMove = White, castlesAvailable = Set.fromList allCastles, enPassantSquare = Nothing, halfMoveClock = 0, fullMoveNumber = 1}
 
-fromMoves :: [Move Maybe] -> Game -> Maybe Game
+fromMoves :: [AmbiguousMove] -> Game -> Maybe Game
 fromMoves = foldr f pure
   where
     f move g game = singletonMaybe (disambiguate game move) >>= g . applyMove game
@@ -101,20 +98,22 @@ result _ Stalemate = Draw
 postMoveStatus :: Game -> Status
 postMoveStatus game = maybe Playing (Finished . result (playerToMove game)) $ finishedStatus game
 
-legalMoves :: Game -> [Move Identity]
+legalMoves :: Game -> [FullyDefinedMove]
 legalMoves game = filter legal $ attackingMoves player board' ++ nonAttackingMoves player board'
   where
     legal move = not . isUnderCheck player $ applyMoveToBoard move board'
     player = playerToMove game
     board' = gameBoard game
 
-nonAttackingMoves :: Player -> Board -> [Move Identity]
+nonAttackingMoves :: Player -> Board -> [FullyDefinedMove]
 nonAttackingMoves player board = do
   (movePiece, fromSquare) <- piecePositions player board
   lineOfMovement <- linesOfMovement (player, movePiece) fromSquare
   toSquare <- takeWhile unoccupied lineOfMovement
-  return $ moveIdentity movePiece fromSquare To toSquare
+  return $ Move movePiece fromSquare To toSquare Nothing
   where
+    -- TODO: checkType
+
     unoccupied space = isNothing $ pieceAt board space
 
 isUnderCheck :: Player -> Board -> Bool
@@ -132,14 +131,14 @@ linesOfMovement (player, pieceType) = case pieceType of
   King -> map singleton . kingMoves
   Queen -> queenLines
 
-attackingMoves :: Player -> Board -> [Move Identity]
+attackingMoves :: Player -> Board -> [FullyDefinedMove]
 attackingMoves player board = do
   (movePiece, fromSquare) <- piecePositions player board
   spaces <- linesOfAttack (player, movePiece) fromSquare
   maybeToList $ do
     (toSquare, (ownerOfPiece, _)) <- firstJust (fmapSnd $ pieceAt board) spaces
     guard $ ownerOfPiece == other player
-    return $ moveIdentity movePiece fromSquare Takes toSquare
+    return $ Move movePiece fromSquare Takes toSquare Nothing
   where
     fmapSnd f a = (,) a <$> f a
 
@@ -226,13 +225,12 @@ other Black = White
 pieceAt :: Board -> Square -> Maybe Piece
 pieceAt board space = Map.lookup space board
 
-applyMoveToBoard :: Move Identity -> Board -> Board
-applyMoveToBoard move board = Map.insert to (board ! from) (Map.delete from board)
+applyMoveToBoard :: FullyDefinedMove -> Board -> Board
+applyMoveToBoard move board = Map.insert (toSquare move) (board ! from) (Map.delete from board)
   where
-    to = toSquare move
-    from = fromSquareIdentity $ fromSquareF move
+    from = fromSquare move
 
-applyMove :: Game -> Move Identity -> Game
+applyMove :: Game -> FullyDefinedMove -> Game
 applyMove (Game {gameBoard, playerToMove, castlesAvailable, halfMoveClock, fullMoveNumber}) move = Game {gameBoard = applyMoveToBoard move gameBoard, playerToMove = other player, castlesAvailable, enPassantSquare = enPassantTarget move, halfMoveClock = if halfMoveClockResets then 0 else halfMoveClock + 1, fullMoveNumber = if playerToMove == Black then fullMoveNumber + 1 else fullMoveNumber}
   where
     player = playerToMove
@@ -244,11 +242,11 @@ isCapture move = moveType move == Takes
 firstJust :: (a -> Maybe b) -> [a] -> Maybe b
 firstJust f = fmap getFirst . foldMap (fmap First . f)
 
-enPassantTarget :: Move Identity -> Maybe Square
-enPassantTarget (Move {movePiece, fromSquareF, toSquare}) = case (movePiece, fromRank, toRank) of
+enPassantTarget :: FullyDefinedMove -> Maybe Square
+enPassantTarget (Move {movePiece, fromSquare, toSquare}) = case (movePiece, fromRank, toRank) of
   (Pawn, Two, Four) -> Just (file, Three)
   (Pawn, Seven, Five) -> Just (file, Six)
   _ -> Nothing
   where
-    (file, fromRank) = fromSquareIdentity fromSquareF
+    (file, fromRank) = fromSquare
     (_, toRank) = toSquare

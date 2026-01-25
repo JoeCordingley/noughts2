@@ -1,21 +1,18 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
-module Chess.Notation.Parser where
+module Chess.Notation.Parser (Parser, fen, fullMove, move, moveText) where
 
 import Chess.Data
-import Chess.Notation
+import Chess.Lib (withInput)
+import Chess.Notation hiding (fen)
 import Control.Applicative (optional, (<|>))
-import Data.List.NonEmpty (NonEmpty ((:|)))
-import Data.Map (Map)
+import Data.List (intersperse)
 import qualified Data.Map as Map
-import Data.Maybe (mapMaybe)
-import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Void (Void)
-import Text.Megaparsec (MonadParsec (try), Parsec, many, token)
+import Text.Megaparsec (MonadParsec (try), Parsec, choice, many, some)
 import Text.Megaparsec.Char (char, hspace)
 import Text.Megaparsec.Char.Lexer (decimal)
-import Text.Megaparsec.Error (ErrorItem (..))
 
 type Stream = String
 
@@ -40,12 +37,15 @@ fullMove = do
   return $ FullMove n white black
 
 move :: Parser NotatedMove
-move = try disambiguated <|> simple
+move = NotatedMove <$> (try disambiguated <|> simple)
   where
-    disambiguated = NotatedMove <$> (Move <$> piece <*> fuzzySquare <*> parseMoveType <*> square)
-    simple = move' <$> piece <*> parseMoveType <*> square
+    disambiguated = Move <$> pieceType <*> fuzzySquare <*> parseMoveType <*> square <*> optional appendation
+    simple = move' <$> pieceType <*> parseMoveType <*> square <*> optional appendation
       where
-        move' movePiece moveType toSquare = NotatedMove $ Move {movePiece, fromSquareF = (Nothing, Nothing), moveType, toSquare}
+        move' movePiece moveType toSquare checkStatus = Move {movePiece, fromSquare = (Nothing, Nothing), moveType, toSquare, checkStatus}
+
+appendation :: Parser CheckType
+appendation = (Check <$ char '+') <|> (Mate <$ char '#')
 
 fuzzySquare :: Parser (Maybe File, Maybe Rank)
 fuzzySquare = (,) <$> optional file <*> optional rank
@@ -56,20 +56,8 @@ parseMoveType = Takes <$ "x" <|> pure To
 square :: Parser Square
 square = (,) <$> file <*> rank
 
-charMap :: Map Char a -> Parser a
-charMap m = token test expected
-  where
-    test c = Map.lookup c m
-    expected = Set.fromList [Tokens (c :| []) | c <- Map.keys m]
-
-piece :: Parser PieceType
-piece = charMap pieceMap <|> pure Pawn
-  where
-    pieceMap =
-      Map.fromList $ mapMaybe f pieceTypes
-      where
-        f Pawn = Nothing
-        f pieceType = Just (pieceTypeChar pieceType, pieceType)
+pieceType :: Parser PieceType
+pieceType = choice (map charMapping pieceTypeChars) <|> pure Pawn
 
 parseDots :: Parser Dots
 parseDots = lexeme (ThreeDots <$ "..." <|> OneDot <$ ".")
@@ -78,9 +66,37 @@ lexeme :: Parser a -> Parser a
 lexeme p = p <* hspace
 
 file :: Parser File
-file = charMap . Map.fromList $ map (\file -> (fileChar file, file)) files
+file = choice $ map charMapping fileChars
 
 rank :: Parser Rank
-rank = charMap . Map.fromList $ map (\rank -> (rankChar rank, rank)) ranks
+rank = choice $ map charMapping rankChars
+
+charMapping :: (a, Char) -> Parser a
+charMapping (a, c) = a <$ char c
 
 data Dots = OneDot | ThreeDots
+
+fen :: Parser Game
+fen = Game <$> lexeme piecePlacement <*> lexeme activeColourParser <*> lexeme castlingAvailability <*> lexeme enPassantTargetSquare <*> lexeme halfMoveClock <*> lexeme fullMoveNumber
+  where
+    piecePlacement = fmap (Map.fromList . concat) . sequence . intersperse ([] <$ char '/') . map parseRank $ reverse ranks
+    parseRank rank = parseRank' files
+      where
+        parseRank' [] = pure []
+        parseRank' (file : files) = do
+          fenElement <- parseFenElement
+          case fenElement of
+            FenPiece piece -> (((file, rank), piece) :) <$> parseRank' files
+            NumberOfSquares n -> parseRank' (drop (n - 1) files)
+    activeColourParser = choice $ map (charMapping . withInput activeColourChar) [White, Black]
+    castlingAvailability = Set.empty <$ char '-' <|> Set.fromList <$> some castleLocation
+    castleLocation = choice $ map charMapping castleChars
+    enPassantTargetSquare = Nothing <$ char '-' <|> Just <$> square
+    halfMoveClock = decimal
+    fullMoveNumber = decimal
+
+piece :: Parser Piece
+piece = choice $ map charMapping pieceChars
+
+parseFenElement :: Parser FenElement
+parseFenElement = NumberOfSquares <$> decimal <|> FenPiece <$> piece

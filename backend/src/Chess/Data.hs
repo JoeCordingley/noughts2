@@ -1,6 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
-module Chess.Data (Board, File (..), PieceType (..), Rank (..), Square, Player (..), Piece, Move (..), MoveType (..), Game (..), CastleLocation (..), files, ranks, pieceTypes, allCastles, CastleSide (..), moveIdentity, fromSquareIdentity) where
+module Chess.Data (Board, File (..), PieceType (..), Rank (..), Square, Player (..), Piece, Move (..), MoveType (..), Game (..), CastleLocation, files, ranks, pieceTypes, allCastles, CastleSide (..), pieces, CheckType (..), AmbiguousMove, FullyDefinedMove) where
 
 import Control.Monad.Identity (Identity (Identity))
 import Data.Map (Map)
@@ -17,7 +17,7 @@ data File
   | F
   | G
   | H
-  deriving (Eq, Ord, Enum, Bounded)
+  deriving (Eq, Ord, Enum, Bounded, Show)
 
 files :: [File]
 files = [A, B, C, D, E, F, G, H]
@@ -31,7 +31,7 @@ data Rank
   | Six
   | Seven
   | Eight
-  deriving (Eq, Ord, Enum, Bounded)
+  deriving (Eq, Ord, Enum, Bounded, Show)
 
 ranks :: [Rank]
 ranks = [One, Two, Three, Four, Five, Six, Seven, Eight]
@@ -43,10 +43,16 @@ data PieceType
   | Bishop
   | Queen
   | Pawn
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Show)
 
 pieceTypes :: [PieceType]
 pieceTypes = [King, Queen, Rook, Bishop, Knight, Pawn]
+
+pieces :: [Piece]
+pieces = (,) <$> players <*> pieceTypes
+
+players :: [Player]
+players = [White, Black]
 
 type Piece =
   (Player, PieceType)
@@ -58,21 +64,26 @@ data Player
   | Black
   deriving (Show, Eq, Ord)
 
-data Move f = Move {movePiece :: PieceType, fromSquareF :: (f File, f Rank), moveType :: MoveType, toSquare :: Square}
+data Move a = Move {movePiece :: PieceType, fromSquare :: a, moveType :: MoveType, toSquare :: Square, checkStatus :: Maybe CheckType}
 
-moveIdentity :: PieceType -> Square -> MoveType -> Square -> Move Identity
-moveIdentity movePiece (fromFile, fromRank) moveType toSquare = Move {movePiece, fromSquareF, moveType, toSquare}
-  where
-    fromSquareF = (Identity fromFile, Identity fromRank)
+type FullyDefinedMove = Move Square
 
-fromSquareIdentity :: (Identity File, Identity Rank) -> Square
-fromSquareIdentity (Identity file, Identity rank) = (file, rank)
+type AmbiguousMove = Move AmbiguousSquare
+
+type AmbiguousSquare = (Maybe File, Maybe Rank)
+
+data CheckType = Check | Mate deriving (Eq, Show)
+
+-- moveIdentity :: PieceType -> Square -> MoveType -> Square -> Maybe CheckType -> Move
+-- moveIdentity movePiece (fromFile, fromRank) moveType toSquare checkStatus = Move {movePiece, fromSquare, moveType, toSquare, checkStatus}
+--  where
+--    fromSquare = (Identity fromFile, Identity fromRank)
 
 data MoveType = Takes | To deriving (Eq)
 
-data Game = Game {gameBoard :: Board, playerToMove :: Player, castlesAvailable :: Set CastleLocation, enPassantSquare :: Maybe Square, halfMoveClock :: Int, fullMoveNumber :: Int}
+data Game = Game {gameBoard :: Board, playerToMove :: Player, castlesAvailable :: Set CastleLocation, enPassantSquare :: Maybe Square, halfMoveClock :: Int, fullMoveNumber :: Int} deriving (Eq, Show)
 
-data CastleSide = Kingside | Queenside deriving (Eq, Ord)
+data CastleSide = Kingside | Queenside deriving (Eq, Ord, Show)
 
 type CastleLocation = (Player, CastleSide)
 
