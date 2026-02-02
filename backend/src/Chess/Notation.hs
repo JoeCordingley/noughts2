@@ -1,7 +1,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Chess.Notation (FullMove (..), fen, Move (..), Result (..), MoveText (..), flattenMove, NotatedMove (..), fileChar, rankChar, rankChars, fileChars, pieceTypeChar, pieceTypeChars, pieceChars, FenElement (..), castleChar, castleChars, activeColourChar) where
+module Chess.Notation (FullMove (..), fen, Result (..), MoveText (..), flattenMove, NotatedMove (..), fileChar, rankChar, rankChars, fileChars, pieceTypeChar, pieceTypeChars, pieceChars, FenElement (..), castleChar, castleChars, activeColourChar) where
 
 import Chess.Data
 import Chess.Lib (withInput)
@@ -120,7 +120,7 @@ instance Show FenElement where
   show (FenPiece piece) = [pieceChar piece]
 
 fen :: Game -> String
-fen (Game {gameBoard, playerToMove, castlesAvailable, enPassantSquare, halfMoveClock, fullMoveNumber}) = unwords [piecePlacement gameBoard, singleton (activeColourChar playerToMove), castlingAvailability castlesAvailable, square enPassantSquare, show halfMoveClock, show fullMoveNumber]
+fen (Game {playerToMove, boardStatus = BoardStatus {gameBoard, castlesAvailable, enPassantSquare}, halfMoveClock, fullMoveNumber}) = unwords [piecePlacement gameBoard, singleton (activeColourChar playerToMove), castlingAvailability castlesAvailable, square enPassantSquare, show halfMoveClock, show fullMoveNumber]
 
 square :: Maybe Square -> String
 square Nothing = "-"

@@ -8,8 +8,13 @@ import Data.Set (Set)
 
 data Board = Board {squares :: Map Square Piece, whitePieceLocations :: Map Square PieceType, blackPieceLocations :: Map Square PieceType} deriving (Eq, Show)
 
-applyMoveToBoard :: Player -> Move -> Board -> Board
-applyMoveToBoard player (Move {fromSquare, toSquare, movePiece}) (Board {squares, whitePieceLocations, blackPieceLocations}) = Board {squares = squares', whitePieceLocations = whitePieceLocations', blackPieceLocations = blackPieceLocations'}
+updateBoardStatus :: Player -> Move -> BoardStatus -> BoardStatus
+updateBoardStatus player (Move movement) (BoardStatus {gameBoard, castlesAvailable}) = BoardStatus {gameBoard = applyMovementToBoard player movement gameBoard, enPassantSquare, castlesAvailable}
+  where
+    enPassantSquare = undefined
+
+applyMovementToBoard :: Player -> Movement (Maybe PieceType, Square) -> Board -> Board
+applyMovementToBoard player (Movement (_, fromSquare) (toSquare, movePiece)) (Board {squares, whitePieceLocations, blackPieceLocations}) = Board {squares = squares', whitePieceLocations = whitePieceLocations', blackPieceLocations = blackPieceLocations'}
   where
     update a = Map.insert toSquare a . Map.delete fromSquare
     delete = Map.delete toSquare
@@ -91,7 +96,13 @@ data Player
 
 -- data Move a = Move {movePiece :: PieceType, fromSquare :: a, moveType :: MoveType, toSquare :: Square, checkStatus :: Maybe CheckType}
 
-data Move = Move {movePiece :: PieceType, fromSquare :: Square, pieceUnderAttack :: Maybe PieceType, toSquare :: Square, checkStatus :: Maybe CheckType} deriving (Show)
+data Move = Move (Movement (Maybe PieceType, Square)) | Castle CastleLocation deriving (Show)
+
+data Movement a = Movement {from :: (PieceType, Square), to :: a} deriving (Show)
+
+type AttackingMove = Movement (PieceType, Square)
+
+type SimpleMove = Movement Square
 
 data NotatedMove = NotatedMove {notatedMovePiece :: PieceType, maybeFrom :: (Maybe File, Maybe Rank), moveType :: MoveType, notatedToSquare :: Square, notatedCheckStatus :: Maybe CheckType} deriving (Eq)
 
@@ -106,7 +117,9 @@ data CheckType = Check | Mate deriving (Eq, Show)
 
 data MoveType = Takes | To deriving (Eq, Show)
 
-data Game = Game {gameBoard :: Board, playerToMove :: Player, castlesAvailable :: Set CastleLocation, enPassantSquare :: Maybe Square, halfMoveClock :: Int, fullMoveNumber :: Int} deriving (Eq, Show)
+data Game = Game {playerToMove :: Player, boardStatus :: BoardStatus, halfMoveClock :: Int, fullMoveNumber :: Int} deriving (Eq, Show)
+
+data BoardStatus = BoardStatus {gameBoard :: Board, castlesAvailable :: Set CastleLocation, enPassantSquare :: Maybe Square} deriving (Eq, Show)
 
 data CastleSide = Kingside | Queenside deriving (Eq, Ord, Show)
 

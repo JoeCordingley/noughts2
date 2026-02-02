@@ -1,8 +1,8 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
-module Chess.Notation.Parser (Parser, fen, fullMove, move, moveText) where
+module Chess.Notation.Parser (Parser, fen, fullMove, parseMove, moveText) where
 
-import Chess.Data
+import Chess.Data hiding (move)
 import Chess.Lib (withInput)
 import Chess.Notation hiding (fen)
 import Control.Applicative (optional, (<|>))
@@ -31,13 +31,13 @@ fullMove = do
   n <- decimal
   dots <- parseDots
   white <- case dots of
-    OneDot -> Just <$> lexeme move
+    OneDot -> Just <$> lexeme parseMove
     ThreeDots -> pure Nothing
-  black <- optional $ lexeme move
+  black <- optional $ lexeme parseMove
   return $ FullMove n white black
 
-move :: Parser NotatedMove
-move = (try disambiguated <|> simple)
+parseMove :: Parser NotatedMove
+parseMove = (try disambiguated <|> simple)
   where
     disambiguated = NotatedMove <$> pieceType <*> fuzzySquare <*> parseMoveType <*> square <*> optional appendation
     simple = move' <$> pieceType <*> parseMoveType <*> square <*> optional appendation
@@ -77,8 +77,9 @@ charMapping (a, c) = a <$ char c
 data Dots = OneDot | ThreeDots
 
 fen :: Parser Game
-fen = Game <$> lexeme piecePlacement <*> lexeme activeColourParser <*> lexeme castlingAvailability <*> lexeme enPassantTargetSquare <*> lexeme halfMoveClock <*> lexeme fullMoveNumber
+fen = game <$> lexeme piecePlacement <*> lexeme activeColourParser <*> lexeme castlingAvailability <*> lexeme enPassantTargetSquare <*> lexeme halfMoveClock <*> lexeme fullMoveNumber
   where
+    game gameBoard playerToMove castlesAvailable enPassantSquare halfMoveClock fullMoveNumber = Game {playerToMove, boardStatus = BoardStatus {gameBoard, castlesAvailable, enPassantSquare}, halfMoveClock, fullMoveNumber}
     piecePlacement = fmap (fromPieces . concat) . sequence . intersperse ([] <$ char '/') . map parseRank $ reverse ranks
     parseRank rank = parseRank' files
       where
