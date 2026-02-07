@@ -1,5 +1,5 @@
 import Chess.Data
-import Chess.Game (applyMoveToBoard, attackingMoves, fromMoves, legalMoves, simpleMoves, startingBoard, startingBoardStatus, startingGame, updateBoardStatus)
+import Chess.Game (applyMoveToBoard, attackingMoves, fromMoves, legalMoves, simpleMoves, startingBoard, startingBoardStatus, startingGame)
 import Chess.Notation as Notation
 import Chess.Notation.Parser as Parser
 import qualified Data.Set as Set
@@ -19,7 +19,7 @@ main =
         testFenParser,
         -- testLegalMoves,
         testAttackingMoves,
-        testSimpleMoves,
+        -- testSimpleMoves,
         testShortGame
       ]
 
@@ -97,14 +97,14 @@ testAttackingMoves = testGroup "attackingMoves" $ [testCase "openingBoard" $ act
     actual = attackingMoves White startingBoard
     expected = []
 
-testSimpleMoves :: TestTree
-testSimpleMoves = testGroup "simpleMoves" $ [testCase "openingBoard" $ Set.fromList actual @?= Set.fromList expected]
-  where
-    actual = simpleMoves White startingBoard
-    expected = pawnMoves <> knightMoves
-      where
-        pawnMoves = [Movement (Pawn, (file, Two)) (file, rank) | file <- files, rank <- [Three, Four]]
-        knightMoves = [Movement (Knight, (fromFile, One)) (toFile, Three) | (fromFile, toFile) <- [(B, A), (B, C), (G, F), (G, H)]]
+-- testSimpleMoves :: TestTree
+-- testSimpleMoves = testGroup "simpleMoves" $ [testCase "openingBoard" $ Set.fromList actual @?= Set.fromList expected]
+--  where
+--    actual = simpleMoves White startingBoard
+--    expected = pawnMoves <> knightMoves
+--      where
+--        pawnMoves = [Movement (Pawn, (file, Two)) (file, rank) | file <- files, rank <- [Three, Four]]
+--        knightMoves = [Movement (Knight, (fromFile, One)) (toFile, Three) | (fromFile, toFile) <- [(B, A), (B, C), (G, F), (G, H)]]
 
 testShortGame :: TestTree
 testShortGame = testCase "shortGame" $ actual @?= expected

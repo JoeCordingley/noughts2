@@ -2,7 +2,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
 
-module Chess.Game (play, GetAction, Board, Result (..), Player (..), Square, Rank (..), File (..), legalMoves, PieceType (..), ranks, files, startingBoard, fromMoves, Action (..), startingGame, attackingMoves, isUnderCheck, startingBoardStatus, simpleMoves, updateBoardStatus, applyMoveToBoard) where
+module Chess.Game (play, GetAction, Board, Result (..), Player (..), Square, Rank (..), File (..), legalMoves, PieceType (..), ranks, files, startingBoard, fromMoves, Action (..), startingGame, attackingMoves, isUnderCheck, startingBoardStatus, simpleMoves, applyMoveToBoard) where
 
 import Chess.Data
 import Chess.Lib (singletonMaybe)
@@ -12,6 +12,7 @@ import qualified Data.Map as Map
 import Data.Maybe (isJust, isNothing, maybeToList)
 import Data.Semigroup (First (..))
 import qualified Data.Set as Set
+import Debug.Trace (trace)
 
 data Result
   = Winner Player
@@ -39,13 +40,13 @@ startingBoard :: Board
 startingBoard =
   fromPieces $
     [ ((file, rank), (player, pieceType))
-      | (rank, player, pieceTypes) <-
+      | (rank, player, row) <-
           [ (One, White, otherPieces),
             (Two, White, pawns),
             (Seven, Black, pawns),
             (Eight, Black, otherPieces)
           ],
-        (file, pieceType) <- files `zip` pieceTypes
+        (file, pieceType) <- files `zip` row
     ]
   where
     pawns = replicate 8 Pawn
@@ -61,7 +62,7 @@ playMove = undefined
 --    f newGame = (postMoveStatus newGame, newGame)
 
 matches :: NotatedMove -> Move -> Game -> Bool
-matches (NotatedMove p1 (maybeOriginFile, maybeOriginRank) x1 d1 checkStatus) (Move (Movement (p2, (of2, or2)) (x2, d2))) game =
+matches (NotatedMove p1 (maybeOriginFile, maybeOriginRank) x1 d1 checkStatus) (Move (p2, (of2, or2)) (x2, d2)) game =
   p1 == p2
     && ( case x1 of
            Takes -> isJust x2
@@ -72,18 +73,21 @@ matches (NotatedMove p1 (maybeOriginFile, maybeOriginRank) x1 d1 checkStatus) (M
     && all (== or2) maybeOriginRank
     && checkBoardStatus' == checkStatus
   where
-    checkBoardStatus' = checkType =<< checkBoardStatus (playerToMove game) (boardStatus game)
+    checkBoardStatus' = checkType =<< checkBoardStatus game
 
 -- disambiguate :: Player -> BoardStatus -> NotatedMove -> [(Move, BoardStatus)]
 -- disambiguate player boardStatus move = filter (matches move) $ legalMoves player boardStatus
 --  where
 
-checkBoardStatus :: Player -> BoardStatus -> Maybe CheckStatus
-checkBoardStatus player boardStatus = case (null $ legalMoves player boardStatus, isUnderCheck player (gameBoard boardStatus)) of
+checkBoardStatus :: Game -> Maybe CheckStatus
+checkBoardStatus game = case (null $ legalMoves game, isUnderCheck player board) of
   (True, False) -> Just Stalemate
   (True, True) -> Just (CheckType Mate)
   (False, True) -> Just (CheckType Check)
   (False, False) -> Nothing
+  where
+    player = playerToMove game
+    board = gameBoard $ boardStatus game
 
 type GetAction f = Game -> f Action
 
@@ -96,10 +100,7 @@ startingBoardStatus = BoardStatus {gameBoard = startingBoard, castlesAvailable =
 fromMoves :: [NotatedMove] -> Game -> Maybe Game
 fromMoves = foldr f pure
   where
-    f notatedMove g game = g =<< singletonMaybe [newGame | (move, newGame) <- legalMoves' game, matches notatedMove move newGame]
-      where
-        legalMoves' (Game {playerToMove, boardStatus}) = map advance' $ legalMoves playerToMove boardStatus
-        advance' (move, boardStatus) = (move, advanceGame game boardStatus)
+    f notatedMove g game = g =<< singletonMaybe [newGame | (move, newGame) <- legalMoves game, matches notatedMove move newGame]
 
 type PlayMove f = Game -> f (Status, Game)
 
@@ -118,64 +119,75 @@ finishedStatus = undefined
 postMoveStatus :: Game -> Status
 postMoveStatus = undefined
 
--- postMoveStatus game = maybe Playing (Finished . result (playerToMove game)) $ finishedStatus game
-
-updateBoardStatus :: Player -> Move -> BoardStatus -> BoardStatus
-updateBoardStatus player move (BoardStatus {gameBoard, castlesAvailable, halfMoveClock}) = BoardStatus {gameBoard = newGameBoard, enPassantSquare, castlesAvailable = removeCastles castlesAvailable, halfMoveClock = updateHalfMoveClock halfMoveClock}
-  where
-    (enPassantSquare, removeCastles, updateHalfMoveClock) = case move of
-      Move movement -> (enPassantSquare', removeCastles', updateHalfMoveClock')
-        where
-          enPassantSquare' = case (movePiece, fromRank, toRank) of
-            (Pawn, Two, Four) -> Just (fromFile, Three)
-            (Pawn, Seven, Five) -> Just (fromFile, Six)
-            _ -> Nothing
-          Movement from to = movement
-          (maybeCapture, (_, toRank)) = to
-          (movePiece, (fromFile, fromRank)) = from
-          removeCastles' = foldr (.) id [Set.delete castle | (piece, square) <- from : forTakes to, castle <- invalidatedCastles piece square]
-          invalidatedCastles Rook (A, One) = [(White, Queenside)]
-          invalidatedCastles Rook (H, One) = [(White, Kingside)]
-          invalidatedCastles Rook (A, Eight) = [(Black, Queenside)]
-          invalidatedCastles Rook (H, Eight) = [(Black, Kingside)]
-          invalidatedCastles King (E, One) = (White,) <$> castleSides
-          invalidatedCastles King (E, Eight) = (Black,) <$> castleSides
-          invalidatedCastles _ _ = []
-          forTakes (Just a, b) = [(a, b)]
-          forTakes (Nothing, _) = []
-          updateHalfMoveClock' = if halfMoveClockResets then const 0 else (+ 1)
-          halfMoveClockResets = isJust maybeCapture || movePiece == Pawn
-      Castle _ -> (Nothing, remove Queenside . remove Kingside, (+ 1))
-        where
-          remove side = Set.delete (player, side)
-    newGameBoard = applyMoveToBoard player move gameBoard
-
 applyMoveToBoard :: Player -> Move -> Board -> Board
-applyMoveToBoard player (Move (Movement (movePiece, fromSquare) (_, toSquare))) = Map.insert toSquare (player, movePiece) . Map.delete fromSquare
+applyMoveToBoard player (Move (movePiece, fromSquare) (_, toSquare)) = Map.insert toSquare (player, movePiece) . Map.delete fromSquare
 
--- legalMoves :: Game -> [(Move, Game)]
--- legalMoves game = [(move, advanceGame game newStatus) | ]
-
-legalMoves :: Player -> BoardStatus -> [(Move, BoardStatus)]
-legalMoves playerToMove boardStatus = [(move, newBoardStatus) | move <- attackingMoves' ++ simpleMoves', let newBoardStatus = updateBoardStatus playerToMove move boardStatus, legal playerToMove (gameBoard newBoardStatus)]
+legalMoves :: Game -> [(Move, Game)]
+legalMoves (Game {playerToMove, boardStatus, fullMoveNumber}) = withInput advanceGame =<< attackingMoves' ++ simpleMoves'
   where
-    attackingMoves' = map (Move . fromAttackingMove) $ attackingMoves playerToMove board
-    fromAttackingMove (Movement from (piece, to)) = Movement from (Just piece, to)
+    attackingMoves' = map fromAttackingMove $ attackingMoves player board
+    simpleMoves' = map fromSimpleMove $ simpleMoves player board
+    player = playerToMove
+    fromAttackingMove (from, (piece, to)) = Move from (Just piece, to)
+    fromSimpleMove (from, to) = Move from (Nothing, to)
     board = gameBoard boardStatus
-    simpleMoves' = map (Move . fromSimpleMove) $ simpleMoves playerToMove board
-    fromSimpleMove (Movement from to) = Movement from (Nothing, to)
+    withInput f a = (a,) <$> f a
+    advanceGame move = newGame <$ guard legal
+      where
+        legal = not $ isUnderCheck player newBoard
+        newBoard = applyMoveToBoard player move board
+        newGame = Game {playerToMove = other player, boardStatus = updateBoardStatus boardStatus, fullMoveNumber = increment fullMoveNumber}
+        increment = case player of
+          Black -> (+ 1)
+          White -> id
+        updateBoardStatus (BoardStatus {gameBoard, castlesAvailable, halfMoveClock}) = BoardStatus {gameBoard = newBoard, enPassantSquare, castlesAvailable = removeCastles castlesAvailable, halfMoveClock = updateHalfMoveClock halfMoveClock}
+          where
+            (enPassantSquare, removeCastles, updateHalfMoveClock) = case move of
+              Move from to -> (enPassantSquare', removeCastles', updateHalfMoveClock')
+                where
+                  enPassantSquare' = case (pieceType, fromRank, toRank) of
+                    (Pawn, Two, Four) -> Just (fromFile, Three)
+                    (Pawn, Seven, Five) -> Just (fromFile, Six)
+                    _ -> Nothing
+                  (maybeCapture, (_, toRank)) = to
+                  (pieceType, (fromFile, fromRank)) = from
+                  removeCastles' = foldr (.) id [Set.delete castle | (piece, square) <- from : forTakes to, castle <- invalidatedCastles piece square]
+                  invalidatedCastles Rook (A, One) = [(White, Queenside)]
+                  invalidatedCastles Rook (H, One) = [(White, Kingside)]
+                  invalidatedCastles Rook (A, Eight) = [(Black, Queenside)]
+                  invalidatedCastles Rook (H, Eight) = [(Black, Kingside)]
+                  invalidatedCastles King (E, One) = (White,) <$> castleSides
+                  invalidatedCastles King (E, Eight) = (Black,) <$> castleSides
+                  invalidatedCastles _ _ = []
+                  forTakes (Just a, b) = [(a, b)]
+                  forTakes (Nothing, _) = []
+                  updateHalfMoveClock' = if halfMoveClockResets then const 0 else (+ 1)
+                  halfMoveClockResets = isJust maybeCapture || pieceType == Pawn
+              Castle _ -> (Nothing, remove Queenside . remove Kingside, (+ 1))
+                where
+                  remove side = Set.delete (player, side)
+
+-- legalMoves game = [(move, newGame) | move <- attackingMoves' ++ simpleMoves', let newBoard = applyMoveToBoard player move board, legal player newBoard, let newGame = advanceGame move newBoard game]
+--  where
+--    player = playerToMove game
+--    attackingMoves' = map fromAttackingMove $ attackingMoves player board
+--    board = gameBoard $ boardStatus game
+--    fromAttackingMove (from, (piece, to)) = Move from (Just piece, to)
+--    simpleMoves' = map fromSimpleMove $ simpleMoves player board
+--    fromSimpleMove (from, to) = Move from (Nothing, to)
+
+-- advanceGame (Game {playerToMove, fullMoveNumber}) newBoardStatus = Game {playerToMove = other playerToMove, boardStatus = newBoardStatus, fullMoveNumber = if playerToMove == Black then fullMoveNumber + 1 else fullMoveNumber}
+
+-- legalMoves :: Player -> BoardStatus -> [(Move, BoardStatus)]
 
 simpleMoves :: Player -> Board -> [SimpleMove]
 simpleMoves playerToMove gameBoard = do
   (fromSquare, movePiece) <- pieceLocations playerToMove gameBoard
   lineOfMovement <- linesOfMovement (playerToMove, movePiece) fromSquare
   toSquare <- takeWhile unoccupied lineOfMovement
-  return $ Movement (movePiece, fromSquare) toSquare
+  return $ ((movePiece, fromSquare), toSquare)
   where
     unoccupied space = isNothing $ Map.lookup space gameBoard
-
-legal :: Player -> Board -> Bool
-legal playerToMove gameBoard = not $ isUnderCheck playerToMove gameBoard
 
 attackingMoves :: Player -> Board -> [AttackingMove]
 attackingMoves player board = do
@@ -184,7 +196,7 @@ attackingMoves player board = do
   maybeToList $ do
     (toSquare, (player', pieceType)) <- firstJust (fmapSnd . pieceAt $ board) spaces
     guard $ player' == other player
-    return $ Movement (movePiece, fromSquare) (pieceType, toSquare)
+    return $ ((movePiece, fromSquare), (pieceType, toSquare))
   where
     fmapSnd f a = (,) a <$> f a
     pieceAt board space = Map.lookup space board
@@ -194,7 +206,7 @@ isUnderCheck player board = King `elem` piecesUnderAttack
   where
     piecesUnderAttack = [piece | piece <- map pieceOf $ attackingMoves (other player) board]
       where
-        pieceOf (Movement {to}) = fst to
+        pieceOf (_, (piece, _)) = piece
 
 linesOfMovement :: Piece -> Square -> [[Square]]
 linesOfMovement (player, pieceType) = case pieceType of
@@ -277,15 +289,6 @@ allSpaces = (,) <$> files <*> ranks
 other :: Player -> Player
 other White = Black
 other Black = White
-
-advanceGame :: Game -> BoardStatus -> Game
-advanceGame (Game {playerToMove, fullMoveNumber}) newBoardStatus = Game {playerToMove = other playerToMove, boardStatus = newBoardStatus, fullMoveNumber = if playerToMove == Black then fullMoveNumber + 1 else fullMoveNumber}
-
-pieceUnderAttack :: Move -> Maybe PieceType
-pieceUnderAttack (Move (Movement {to})) = fst to
-
-movePiece :: Move -> PieceType
-movePiece (Move (Movement {from})) = fst from
 
 firstJust :: (a -> Maybe b) -> [a] -> Maybe b
 firstJust f = fmap getFirst . foldMap (fmap First . f)

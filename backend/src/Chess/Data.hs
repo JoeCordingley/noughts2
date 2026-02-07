@@ -2,7 +2,6 @@
 
 module Chess.Data where
 
-import Control.Monad (guard, (<=<))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
@@ -76,17 +75,11 @@ data Player
   | Black
   deriving (Show, Eq, Ord)
 
--- data Move a = Move {movePiece :: PieceType, fromSquare :: a, moveType :: MoveType, toSquare :: Square, checkStatus :: Maybe CheckType}
+data Move = Move (PieceType, Square) (Maybe PieceType, Square) | Castle CastleSide deriving (Show, Eq)
 
--- data PostMove = PostMove {move :: Move, postMoveBoard :: BoardStatus, gameStatus :: Maybe GameStatus}
+type AttackingMove = ((PieceType, Square), (PieceType, Square))
 
-data Move = Move (Movement (Maybe PieceType, Square)) | Castle CastleSide deriving (Show, Eq)
-
-data Movement a = Movement {from :: (PieceType, Square), to :: a} deriving (Show, Eq, Ord)
-
-type AttackingMove = Movement (PieceType, Square)
-
-type SimpleMove = Movement Square
+type SimpleMove = ((PieceType, Square), Square)
 
 data NotatedMove = NotatedMove {notatedMovePiece :: PieceType, maybeFrom :: (Maybe File, Maybe Rank), moveType :: MoveType, notatedToSquare :: Square, notatedCheckStatus :: Maybe CheckType} deriving (Eq)
 
@@ -97,13 +90,8 @@ data CheckType = Check | Mate deriving (Eq, Show)
 data CheckStatus = CheckType CheckType | Stalemate deriving (Eq, Show)
 
 checkType :: CheckStatus -> Maybe CheckType
-checkType (CheckType checkType) = Just checkType
+checkType (CheckType c) = Just c
 checkType _ = Nothing
-
--- moveIdentity :: PieceType -> Square -> MoveType -> Square -> Maybe CheckType -> Move
--- moveIdentity movePiece (fromFile, fromRank) moveType toSquare checkStatus = Move {movePiece, fromSquare, moveType, toSquare, checkStatus}
---  where
---    fromSquare = (Identity fromFile, Identity fromRank)
 
 data MoveType = Takes | To deriving (Eq, Show)
 
