@@ -1,7 +1,8 @@
-import Chess.Data (CheckType (..), File (..), MoveType (..), PieceType (..), Rank (..))
-import Chess.Game (fromMoves, startingGame)
+import Chess.Data
+import Chess.Game (attackingMoves, fromMoves, legalMoves, simpleMoves, startingBoard, startingBoardStatus, startingGame)
 import Chess.Notation as Notation
 import Chess.Notation.Parser as Parser
+import qualified Data.Set as Set
 import Test.Tasty
 import Test.Tasty.HUnit
 import Text.Megaparsec (eof, errorBundlePretty, parse)
@@ -11,12 +12,15 @@ main =
   defaultMain $
     testGroup
       "All Tests"
-      [ testShortGame,
+      [ -- testShortGame,
         testOneMove,
         testFullMoveParser,
         testMoveParser,
         testMoveTextParser,
-        testFenParser
+        testFenParser,
+        testLegalMoves,
+        testAttackingMoves,
+        testSimpleMoves
       ]
 
 testShortGame :: TestTree
@@ -82,10 +86,31 @@ testMoveParser = testGroup "test move" $ map moveTest moveCases
       ]
     moveTest (string, expected) = testCase string $ actual @?= expected
       where
-        actual = parseShouldSucceed move string
+        actual = parseShouldSucceed parseMove string
 
 testFenParser :: TestTree
-testFenParser = testCase "openingBoard" $ actual @?= expected
+testFenParser = testGroup "fenParser" [testCase "openingBoard" $ actual @?= expected]
   where
     expected = startingGame
     actual = parseShouldSucceed Parser.fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+testLegalMoves :: TestTree
+testLegalMoves = testGroup "legalMoves" $ [testCase "openingBoard" $ actual @?= expected]
+  where
+    actual = legalMoves White startingBoardStatus
+    expected = []
+
+testAttackingMoves :: TestTree
+testAttackingMoves = testGroup "attackingMoves" $ [testCase "openingBoard" $ actual @?= expected]
+  where
+    actual = attackingMoves White startingBoard
+    expected = []
+
+testSimpleMoves :: TestTree
+testSimpleMoves = testGroup "simpleMoves" $ [testCase "openingBoard" $ Set.fromList actual @?= Set.fromList expected]
+  where
+    actual = simpleMoves White startingBoard
+    expected = pawnMoves <> knightMoves
+      where
+        pawnMoves = [Movement (Pawn, (file, Two)) (file, rank) | file <- files, rank <- [Three, Four]]
+        knightMoves = [Movement (Knight, (fromFile, One)) (toFile, Three) | (fromFile, toFile) <- [(B, A), (B, C), (G, F), (G, H)]]

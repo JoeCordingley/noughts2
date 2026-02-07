@@ -2,41 +2,23 @@
 
 module Chess.Data where
 
+import Control.Monad (guard, (<=<))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 
-data Board = Board {squares :: Map Square Piece, whitePieceLocations :: Map Square PieceType, blackPieceLocations :: Map Square PieceType} deriving (Eq, Show)
-
-updateBoardStatus :: Player -> Move -> BoardStatus -> BoardStatus
-updateBoardStatus player (Move movement) (BoardStatus {gameBoard, castlesAvailable}) = BoardStatus {gameBoard = applyMovementToBoard player movement gameBoard, enPassantSquare, castlesAvailable}
-  where
-    enPassantSquare = undefined
-
-applyMovementToBoard :: Player -> Movement (Maybe PieceType, Square) -> Board -> Board
-applyMovementToBoard player (Movement (_, fromSquare) (toSquare, movePiece)) (Board {squares, whitePieceLocations, blackPieceLocations}) = Board {squares = squares', whitePieceLocations = whitePieceLocations', blackPieceLocations = blackPieceLocations'}
-  where
-    update a = Map.insert toSquare a . Map.delete fromSquare
-    delete = Map.delete toSquare
-    squares' = update (player, movePiece) squares
-    whitePieceLocations' = forPlayer (update movePiece) delete player whitePieceLocations
-    blackPieceLocations' = forPlayer delete (update movePiece) player blackPieceLocations
+type Board = Map Square Piece
 
 forPlayer :: a -> a -> Player -> a
 forPlayer white black player = case player of
   White -> white
   Black -> black
 
-pieceLocations :: Player -> Board -> Map Square PieceType
-pieceLocations = forPlayer whitePieceLocations blackPieceLocations
+pieceLocations :: Player -> Board -> [(Square, PieceType)]
+pieceLocations player board = [(square, pieceType) | (square, (player', pieceType)) <- Map.toList board, player == player']
 
 fromPieces :: [(Square, Piece)] -> Board
-fromPieces pieces = Board {squares, whitePieceLocations, blackPieceLocations}
-  where
-    squares = Map.fromList pieces
-    whitePieceLocations = pieceLocations White
-    blackPieceLocations = pieceLocations Black
-    pieceLocations player = Map.fromList [(square, pieceType) | (square, (player', pieceType)) <- pieces, player' == player]
+fromPieces = Map.fromList
 
 data File
   = A
@@ -96,9 +78,11 @@ data Player
 
 -- data Move a = Move {movePiece :: PieceType, fromSquare :: a, moveType :: MoveType, toSquare :: Square, checkStatus :: Maybe CheckType}
 
-data Move = Move (Movement (Maybe PieceType, Square)) | Castle CastleLocation deriving (Show)
+-- data PostMove = PostMove {move :: Move, postMoveBoard :: BoardStatus, gameStatus :: Maybe GameStatus}
 
-data Movement a = Movement {from :: (PieceType, Square), to :: a} deriving (Show)
+data Move = Move (Movement (Maybe PieceType, Square)) | Castle CastleSide deriving (Show, Eq)
+
+data Movement a = Movement {from :: (PieceType, Square), to :: a} deriving (Show, Eq, Ord)
 
 type AttackingMove = Movement (PieceType, Square)
 
@@ -110,6 +94,12 @@ type AmbiguousSquare = (Maybe File, Maybe Rank)
 
 data CheckType = Check | Mate deriving (Eq, Show)
 
+data CheckStatus = CheckType CheckType | Stalemate deriving (Eq, Show)
+
+checkType :: CheckStatus -> Maybe CheckType
+checkType (CheckType checkType) = Just checkType
+checkType _ = Nothing
+
 -- moveIdentity :: PieceType -> Square -> MoveType -> Square -> Maybe CheckType -> Move
 -- moveIdentity movePiece (fromFile, fromRank) moveType toSquare checkStatus = Move {movePiece, fromSquare, moveType, toSquare, checkStatus}
 --  where
@@ -117,13 +107,16 @@ data CheckType = Check | Mate deriving (Eq, Show)
 
 data MoveType = Takes | To deriving (Eq, Show)
 
-data Game = Game {playerToMove :: Player, boardStatus :: BoardStatus, halfMoveClock :: Int, fullMoveNumber :: Int} deriving (Eq, Show)
+data Game = Game {playerToMove :: Player, boardStatus :: BoardStatus, fullMoveNumber :: Int} deriving (Eq, Show)
 
-data BoardStatus = BoardStatus {gameBoard :: Board, castlesAvailable :: Set CastleLocation, enPassantSquare :: Maybe Square} deriving (Eq, Show)
+data BoardStatus = BoardStatus {gameBoard :: Board, castlesAvailable :: Set CastleLocation, enPassantSquare :: Maybe Square, halfMoveClock :: Int} deriving (Eq, Show)
 
 data CastleSide = Kingside | Queenside deriving (Eq, Ord, Show)
+
+castleSides :: [CastleSide]
+castleSides = [Kingside, Queenside]
 
 type CastleLocation = (Player, CastleSide)
 
 allCastles :: [(Player, CastleSide)]
-allCastles = (,) <$> [White, Black] <*> [Kingside, Queenside]
+allCastles = (,) <$> [White, Black] <*> castleSides

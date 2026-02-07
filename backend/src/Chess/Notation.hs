@@ -120,18 +120,18 @@ instance Show FenElement where
   show (FenPiece piece) = [pieceChar piece]
 
 fen :: Game -> String
-fen (Game {playerToMove, boardStatus = BoardStatus {gameBoard, castlesAvailable, enPassantSquare}, halfMoveClock, fullMoveNumber}) = unwords [piecePlacement gameBoard, singleton (activeColourChar playerToMove), castlingAvailability castlesAvailable, square enPassantSquare, show halfMoveClock, show fullMoveNumber]
+fen (Game {playerToMove, boardStatus = BoardStatus {gameBoard, castlesAvailable, enPassantSquare, halfMoveClock}, fullMoveNumber}) = unwords [piecePlacement gameBoard, singleton (activeColourChar playerToMove), castlingAvailability castlesAvailable, square enPassantSquare, show halfMoveClock, show fullMoveNumber]
 
 square :: Maybe Square -> String
 square Nothing = "-"
 square (Just (file, rank)) = [fileChar file, rankChar rank]
 
 piecePlacement :: Board -> String
-piecePlacement (Board {squares}) = intercalate "/" $ map rankPlacement (reverse ranks)
+piecePlacement board = intercalate "/" $ map rankPlacement (reverse ranks)
   where
     rankPlacement rank = concatMap show $ foldr f [] files
       where
-        f file acc = case (Map.lookup (file, rank) squares, acc) of
+        f file acc = case (Map.lookup (file, rank) board, acc) of
           (Just piece, _) -> FenPiece piece : acc
           (Nothing, NumberOfSquares n : rest) -> NumberOfSquares (n + 1) : rest
           (Nothing, _) -> NumberOfSquares 1 : acc
