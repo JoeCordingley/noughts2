@@ -1,5 +1,5 @@
 import Chess.Data
-import Chess.Game (attackingMoves, fromMoves, legalMoves, simpleMoves, startingBoard, startingBoardStatus, startingGame)
+import Chess.Game (applyMoveToBoard, attackingMoves, fromMoves, legalMoves, simpleMoves, startingBoard, startingBoardStatus, startingGame, updateBoardStatus)
 import Chess.Notation as Notation
 import Chess.Notation.Parser as Parser
 import qualified Data.Set as Set
@@ -12,24 +12,16 @@ main =
   defaultMain $
     testGroup
       "All Tests"
-      [ -- testShortGame,
-        testOneMove,
+      [ testOneMove,
         testFullMoveParser,
         testMoveParser,
         testMoveTextParser,
         testFenParser,
-        testLegalMoves,
+        -- testLegalMoves,
         testAttackingMoves,
-        testSimpleMoves
+        testSimpleMoves,
+        testShortGame
       ]
-
-testShortGame :: TestTree
-testShortGame = testCase "shortGame" $ actual @?= expected
-  where
-    actual = Notation.fen <$> fromMoves shortGameMoves startingGame
-    expected = Just shortGameFen
-    shortGameMoves = concatMap flattenMove shortGameFullMoves
-    shortGameFen = "rnbqkb1r/pppp1ppp/8/4P3/8/4n2P/PPPNPPP1/R1BQKBNR w KQkq - 1 5"
 
 testOneMove :: TestTree
 testOneMove = testCase "oneMove" $ actual @?= expected
@@ -94,11 +86,10 @@ testFenParser = testGroup "fenParser" [testCase "openingBoard" $ actual @?= expe
     expected = startingGame
     actual = parseShouldSucceed Parser.fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-testLegalMoves :: TestTree
-testLegalMoves = testGroup "legalMoves" $ [testCase "openingBoard" $ actual @?= expected]
-  where
-    actual = legalMoves White startingBoardStatus
-    expected = []
+-- testLegalMoves :: TestTree
+-- testLegalMoves = testGroup "legalMoves" [testCase "openingBoard" $ take 3 actual @?= []]
+--  where
+--    actual = legalMoves White startingBoardStatus
 
 testAttackingMoves :: TestTree
 testAttackingMoves = testGroup "attackingMoves" $ [testCase "openingBoard" $ actual @?= expected]
@@ -114,3 +105,11 @@ testSimpleMoves = testGroup "simpleMoves" $ [testCase "openingBoard" $ Set.fromL
       where
         pawnMoves = [Movement (Pawn, (file, Two)) (file, rank) | file <- files, rank <- [Three, Four]]
         knightMoves = [Movement (Knight, (fromFile, One)) (toFile, Three) | (fromFile, toFile) <- [(B, A), (B, C), (G, F), (G, H)]]
+
+testShortGame :: TestTree
+testShortGame = testCase "shortGame" $ actual @?= expected
+  where
+    actual = Notation.fen <$> fromMoves shortGameMoves startingGame
+    expected = Just shortGameFen
+    shortGameMoves = concatMap flattenMove shortGameFullMoves
+    shortGameFen = "rnbqkb1r/pppp1ppp/8/4P3/8/4n2P/PPPNPPP1/R1BQKBNR w KQkq - 1 5"

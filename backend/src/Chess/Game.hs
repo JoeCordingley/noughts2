@@ -2,7 +2,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
 
-module Chess.Game (play, GetAction, Board, Result (..), Player (..), Square, Rank (..), File (..), legalMoves, PieceType (..), ranks, files, startingBoard, fromMoves, Action (..), startingGame, attackingMoves, isUnderCheck, startingBoardStatus, simpleMoves) where
+module Chess.Game (play, GetAction, Board, Result (..), Player (..), Square, Rank (..), File (..), legalMoves, PieceType (..), ranks, files, startingBoard, fromMoves, Action (..), startingGame, attackingMoves, isUnderCheck, startingBoardStatus, simpleMoves, updateBoardStatus, applyMoveToBoard) where
 
 import Chess.Data
 import Chess.Lib (singletonMaybe)
@@ -79,11 +79,11 @@ matches (NotatedMove p1 (maybeOriginFile, maybeOriginRank) x1 d1 checkStatus) (M
 --  where
 
 checkBoardStatus :: Player -> BoardStatus -> Maybe CheckStatus
-checkBoardStatus player boardStatus = case (legalMoves player boardStatus, isUnderCheck player (gameBoard boardStatus)) of
-  ([], False) -> Just Stalemate
-  ([], True) -> Just (CheckType Mate)
-  (_, True) -> Just (CheckType Check)
-  (_, _) -> Nothing
+checkBoardStatus player boardStatus = case (null $ legalMoves player boardStatus, isUnderCheck player (gameBoard boardStatus)) of
+  (True, False) -> Just Stalemate
+  (True, True) -> Just (CheckType Mate)
+  (False, True) -> Just (CheckType Check)
+  (False, False) -> Nothing
 
 type GetAction f = Game -> f Action
 
@@ -121,19 +121,19 @@ postMoveStatus = undefined
 -- postMoveStatus game = maybe Playing (Finished . result (playerToMove game)) $ finishedStatus game
 
 updateBoardStatus :: Player -> Move -> BoardStatus -> BoardStatus
-updateBoardStatus player move (BoardStatus {gameBoard, castlesAvailable, halfMoveClock}) = BoardStatus {gameBoard = newGameBoard, enPassantSquare, castlesAvailable = removeCastles castlesAvailable, halfMoveClock}
+updateBoardStatus player move (BoardStatus {gameBoard, castlesAvailable, halfMoveClock}) = BoardStatus {gameBoard = newGameBoard, enPassantSquare, castlesAvailable = removeCastles castlesAvailable, halfMoveClock = updateHalfMoveClock halfMoveClock}
   where
-    (enPassantSquare, removeCastles, halfMoveClock) = case move of
-      Move movement -> (enPassantSquare', removeCastles, halfMoveClock)
+    (enPassantSquare, removeCastles, updateHalfMoveClock) = case move of
+      Move movement -> (enPassantSquare', removeCastles', updateHalfMoveClock')
         where
-          enPassantSquare' = case (pieceType, fromRank, toRank) of
+          enPassantSquare' = case (movePiece, fromRank, toRank) of
             (Pawn, Two, Four) -> Just (fromFile, Three)
             (Pawn, Seven, Five) -> Just (fromFile, Six)
             _ -> Nothing
           Movement from to = movement
-          (_, (_, toRank)) = to
-          (pieceType, (fromFile, fromRank)) = from
-          removeCastles = foldr (.) id [Set.delete castle | (piece, square) <- from : forTakes to, castle <- invalidatedCastles piece square]
+          (maybeCapture, (_, toRank)) = to
+          (movePiece, (fromFile, fromRank)) = from
+          removeCastles' = foldr (.) id [Set.delete castle | (piece, square) <- from : forTakes to, castle <- invalidatedCastles piece square]
           invalidatedCastles Rook (A, One) = [(White, Queenside)]
           invalidatedCastles Rook (H, One) = [(White, Kingside)]
           invalidatedCastles Rook (A, Eight) = [(Black, Queenside)]
@@ -143,9 +143,9 @@ updateBoardStatus player move (BoardStatus {gameBoard, castlesAvailable, halfMov
           invalidatedCastles _ _ = []
           forTakes (Just a, b) = [(a, b)]
           forTakes (Nothing, _) = []
-          halfMoveClock = if halfMoveClockResets then 0 else halfMoveClock + 1
-          halfMoveClockResets = isCapture move || movePiece move == Pawn
-      Castle _ -> (Nothing, remove Queenside . remove Kingside, halfMoveClock + 1)
+          updateHalfMoveClock' = if halfMoveClockResets then const 0 else (+ 1)
+          halfMoveClockResets = isJust maybeCapture || movePiece == Pawn
+      Castle _ -> (Nothing, remove Queenside . remove Kingside, (+ 1))
         where
           remove side = Set.delete (player, side)
     newGameBoard = applyMoveToBoard player move gameBoard
@@ -280,9 +280,6 @@ other Black = White
 
 advanceGame :: Game -> BoardStatus -> Game
 advanceGame (Game {playerToMove, fullMoveNumber}) newBoardStatus = Game {playerToMove = other playerToMove, boardStatus = newBoardStatus, fullMoveNumber = if playerToMove == Black then fullMoveNumber + 1 else fullMoveNumber}
-
-isCapture :: Move -> Bool
-isCapture = isJust . pieceUnderAttack
 
 pieceUnderAttack :: Move -> Maybe PieceType
 pieceUnderAttack (Move (Movement {to})) = fst to
