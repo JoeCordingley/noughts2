@@ -120,7 +120,7 @@ instance Show FenElement where
   show (FenPiece piece) = [pieceChar piece]
 
 fen :: Game -> String
-fen (Game {playerToMove, boardStatus = BoardStatus {gameBoard, castlesAvailable, enPassantSquare, halfMoveClock}, fullMoveNumber}) = unwords [piecePlacement gameBoard, singleton (activeColourChar playerToMove), castlingAvailability castlesAvailable, square enPassantSquare, show halfMoveClock, show fullMoveNumber]
+fen (Game {playerToMove, gameBoard, castlesAvailable, enPassantSquare, halfMoveClock, fullMoveNumber}) = unwords [piecePlacement gameBoard, singleton (activeColourChar playerToMove), castlingAvailability castlesAvailable, square enPassantSquare, show halfMoveClock, show fullMoveNumber]
 
 square :: Maybe Square -> String
 square Nothing = "-"

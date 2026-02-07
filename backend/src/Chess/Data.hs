@@ -77,6 +77,12 @@ data Player
 
 data Move = Move (PieceType, Square) (Maybe PieceType, Square) | Castle CastleSide deriving (Show, Eq)
 
+fromAttackingMove :: ((PieceType, Square), (PieceType, Square)) -> Move
+fromAttackingMove (from, (piece, to)) = Move from (Just piece, to)
+
+fromSimpleMove :: ((PieceType, Square), Square) -> Move
+fromSimpleMove (from, to) = Move from (Nothing, to)
+
 type AttackingMove = ((PieceType, Square), (PieceType, Square))
 
 type SimpleMove = ((PieceType, Square), Square)
@@ -95,9 +101,7 @@ checkType _ = Nothing
 
 data MoveType = Takes | To deriving (Eq, Show)
 
-data Game = Game {playerToMove :: Player, boardStatus :: BoardStatus, fullMoveNumber :: Int} deriving (Eq, Show)
-
-data BoardStatus = BoardStatus {gameBoard :: Board, castlesAvailable :: Set CastleLocation, enPassantSquare :: Maybe Square, halfMoveClock :: Int} deriving (Eq, Show)
+data Game = Game {gameBoard :: Board, playerToMove :: Player, castlesAvailable :: Set CastleLocation, enPassantSquare :: Maybe Square, halfMoveClock :: Int, fullMoveNumber :: Int} deriving (Eq, Show)
 
 data CastleSide = Kingside | Queenside deriving (Eq, Ord, Show)
 

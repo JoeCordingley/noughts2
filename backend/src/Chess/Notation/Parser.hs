@@ -77,9 +77,8 @@ charMapping (a, c) = a <$ char c
 data Dots = OneDot | ThreeDots
 
 fen :: Parser Game
-fen = game <$> lexeme piecePlacement <*> lexeme activeColourParser <*> lexeme castlingAvailability <*> lexeme enPassantTargetSquare <*> lexeme halfMoveClock <*> lexeme fullMoveNumber
+fen = Game <$> lexeme piecePlacement <*> lexeme activeColourParser <*> lexeme castlingAvailability <*> lexeme enPassantTargetSquare <*> lexeme halfMoveClock <*> lexeme fullMoveNumber
   where
-    game gameBoard playerToMove castlesAvailable enPassantSquare halfMoveClock fullMoveNumber = Game {playerToMove, boardStatus = BoardStatus {gameBoard, castlesAvailable, enPassantSquare, halfMoveClock}, fullMoveNumber}
     piecePlacement = fmap (fromPieces . concat) . sequence . intersperse ([] <$ char '/') . map parseRank $ reverse ranks
     parseRank rank = parseRank' files
       where

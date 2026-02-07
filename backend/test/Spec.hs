@@ -1,5 +1,5 @@
 import Chess.Data
-import Chess.Game (applyMoveToBoard, attackingMoves, fromMoves, legalMoves, simpleMoves, startingBoard, startingBoardStatus, startingGame)
+import Chess.Game (applyMoveToBoard, attackingMoves, fromMoves, legalMoves, simpleMoves, startingBoard, startingGame)
 import Chess.Notation as Notation
 import Chess.Notation.Parser as Parser
 import qualified Data.Set as Set
