@@ -75,13 +75,13 @@ data Player
   | Black
   deriving (Show, Eq, Ord)
 
-data Move = Move (PieceType, Square) (Maybe PieceType, Square) | Castle CastleSide deriving (Show, Eq)
+data Move = RegularMove (PieceType, Square) (Maybe PieceType, Square) | Castle CastleSide deriving (Show, Eq)
 
 fromAttackingMove :: ((PieceType, Square), (PieceType, Square)) -> Move
-fromAttackingMove (from, (piece, to)) = Move from (Just piece, to)
+fromAttackingMove (from, (piece, to)) = RegularMove from (Just piece, to)
 
 fromSimpleMove :: ((PieceType, Square), Square) -> Move
-fromSimpleMove (from, to) = Move from (Nothing, to)
+fromSimpleMove (from, to) = RegularMove from (Nothing, to)
 
 type AttackingMove = ((PieceType, Square), (PieceType, Square))
 

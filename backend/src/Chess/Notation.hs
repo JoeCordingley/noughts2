@@ -2,20 +2,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
-module Chess.Notation (FullMove (..), fen, Result (..), MoveText (..), flattenMove, NotatedMove (..), fileChar, rankChar, rankChars, fileChars, pieceTypeChar, pieceTypeChars, pieceChars, FenElement (..), castleChar, castleChars, activeColourChar, notateMoves) where
+module Chess.Notation (FullMove (..), fen, Result (..), MoveText (..), flattenMove, NotatedMove (..), fileChar, rankChar, rankChars, fileChars, pieceTypeChar, pieceTypeChars, pieceChars, FenElement (..), castleChar, castleChars, activeColourChar, notateMoves, fromMoves) where
 
 import Chess.Data
-import Chess.Lib (withInput)
-import Control.Monad (guard)
+import Chess.Game (gameCheckType, legalMoves)
+import Chess.Lib (guarded, singletonMaybe, withInput)
+import Control.Monad (guard, (>=>))
 import Control.Monad.Reader (Reader, reader, runReader)
 import Control.Monad.Writer (Writer, runWriter, writer)
-import Data.Bool (bool)
 import Data.Char (toLower)
 import Data.Foldable (Foldable (toList))
 import Data.Functor.Compose (Compose (..))
 import Data.List as List (intercalate, singleton)
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
+import Data.Maybe (isJust, isNothing)
 import Data.Set (Set)
 import qualified Data.Set as Set
 
@@ -174,12 +175,12 @@ writerReader = Compose . writer . mapfst reader
 runWriterReader :: WriterReader w a -> a
 runWriterReader = uncurry runReader . runWriter . getCompose
 
-notateMoves :: [(Move, Maybe CheckType)] -> [MoveAndAppendation]
-notateMoves = runWriterReader . traverse (fmap (uncurry MoveAndAppendation) . traversefst f)
+notateMoves :: [(Move, Maybe CheckType)] -> [String]
+notateMoves = runWriterReader . traverse (fmap (show . uncurry MoveAndAppendation) . traversefst f)
   where
     one a = Map.singleton a 1
     traversefst f (a, b) = (,b) <$> f a
-    f move@(Move (piece, (fromFile, fromRank)) _) = writerReader (NotatedMove . h, (one (piece, fromFile), one (piece, fromRank)))
+    f move@(RegularMove (piece, (fromFile, fromRank)) _) = writerReader (NotatedMove . h, (one (piece, fromFile), one (piece, fromRank)))
       where
         h (files, ranks) = notateMoveValues move fileDuplicated rankDuplicated
           where
@@ -187,8 +188,27 @@ notateMoves = runWriterReader . traverse (fmap (uncurry MoveAndAppendation) . tr
             rankDuplicated = ranks ! (piece, fromRank) > 1
 
 notateMoveValues :: Move -> Bool -> Bool -> NotatedMoveValues
-notateMoveValues (Move (piece, (fromFile, fromRank)) (attacking, toSquare)) fileDuplicated rankDuplicated = NotatedMoveValues {notatedMovePiece = piece, fromFile = fromFile <$ guard fileDuplicated, fromRank = fromRank <$ guard rankDuplicated, moveType = moveType, notatedToSquare = toSquare}
+notateMoveValues (RegularMove (piece, (fromFile, fromRank)) (attacking, toSquare)) fileDuplicated rankDuplicated = NotatedMoveValues {notatedMovePiece = piece, fromFile = fromFile <$ guard fileDuplicated, fromRank = fromRank <$ guard rankDuplicated, moveType = moveType, notatedToSquare = toSquare}
   where
     moveType = case attacking of
       Just _ -> Takes
       Nothing -> To
+
+fromMoves :: [MoveAndAppendation] -> Game -> Maybe Game
+fromMoves = foldr ((>=>) . f) pure
+  where
+    f (MoveAndAppendation notatedMove appendation) game = do
+      guarded matchesCheckType =<< singletonMaybe [newGame | (move, newGame) <- legalMoves game, matches notatedMove move]
+      where
+        matchesCheckType game = appendation == gameCheckType game
+
+matches :: NotatedMove -> Move -> Bool
+matches (NotatedMove (NotatedMoveValues p1 maybeOriginFile maybeOriginRank x1 d1)) (RegularMove (p2, (of2, or2)) (x2, d2)) =
+  p1 == p2
+    && ( case x1 of
+           Takes -> isJust x2
+           To -> isNothing x2
+       )
+    && d1 == d2
+    && all (== of2) maybeOriginFile
+    && all (== or2) maybeOriginRank

@@ -2,7 +2,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
 
-module Chess.Game (play, GetAction, Board, Result (..), Player (..), Square, Rank (..), File (..), legalMoves, PieceType (..), ranks, files, startingBoard, fromMoves, Action (..), startingGame, attackingMoves, isUnderCheck, simpleMoves, applyMoveToBoard, gameCheckType) where
+module Chess.Game (play, GetAction, Board, Result (..), Player (..), Square, Rank (..), File (..), legalMoves, PieceType (..), ranks, files, startingBoard, Action (..), startingGame, attackingMoves, isUnderCheck, simpleMoves, applyMoveToBoard, gameCheckType) where
 
 import Chess.Data
 import Chess.Lib (guarded, singletonMaybe)
@@ -53,17 +53,6 @@ startingBoard =
 playMove :: (Functor f) => GetAction f -> PlayMove f
 playMove = undefined
 
-matches :: NotatedMove -> Move -> Bool
-matches (NotatedMove (NotatedMoveValues p1 maybeOriginFile maybeOriginRank x1 d1)) (Move (p2, (of2, or2)) (x2, d2)) =
-  p1 == p2
-    && ( case x1 of
-           Takes -> isJust x2
-           To -> isNothing x2
-       )
-    && d1 == d2
-    && all (== of2) maybeOriginFile
-    && all (== or2) maybeOriginRank
-
 checkBoardStatus :: Game -> Maybe CheckStatus
 checkBoardStatus game = case (null $ legalMoves game, isUnderCheck player board) of
   (True, False) -> Just Stalemate
@@ -79,21 +68,13 @@ type GetAction f = Game -> f Action
 startingGame :: Game
 startingGame = Game {playerToMove = White, gameBoard = startingBoard, castlesAvailable = Set.fromList allCastles, enPassantSquare = Nothing, halfMoveClock = 0, fullMoveNumber = 1} where
 
-fromMoves :: [MoveAndAppendation] -> Game -> Maybe Game
-fromMoves = foldr ((>=>) . f) pure
-  where
-    f (MoveAndAppendation notatedMove appendation) game = do
-      guarded matchesCheckType =<< singletonMaybe [newGame | (move, newGame) <- legalMoves game, matches notatedMove move]
-      where
-        matchesCheckType game = appendation == gameCheckType game
-
 gameCheckType :: Game -> Maybe CheckType
 gameCheckType = checkType <=< checkBoardStatus
 
 type PlayMove f = Game -> f (Status, Game)
 
 applyMoveToBoard :: Player -> Move -> Board -> Board
-applyMoveToBoard player (Move (movePiece, fromSquare) (_, toSquare)) = Map.insert toSquare (player, movePiece) . Map.delete fromSquare
+applyMoveToBoard player (RegularMove (movePiece, fromSquare) (_, toSquare)) = Map.insert toSquare (player, movePiece) . Map.delete fromSquare
 
 legalMoves :: Game -> [(Move, Game)]
 legalMoves (Game {gameBoard = board, playerToMove = player, castlesAvailable, halfMoveClock, fullMoveNumber}) = withInput advanceGame =<< attackingMoves' ++ simpleMoves'
@@ -111,17 +92,17 @@ legalMoves (Game {gameBoard = board, playerToMove = player, castlesAvailable, ha
           White -> id
         removeCastles = foldr (.) id [Set.delete castle | castle <- invalidatedCastles player move]
         updateHalfMoveClock = case move of
-          Move (Pawn, _) _ -> const 0
-          Move _ (Just _, _) -> const 0
+          RegularMove (Pawn, _) _ -> const 0
+          RegularMove _ (Just _, _) -> const 0
           _ -> (+ 1)
         enPassantSquare = case move of
-          Move (Pawn, (fromFile, Two)) (_, (_, Four)) -> Just (fromFile, Three)
-          Move (Pawn, (fromFile, Seven)) (_, (_, Five)) -> Just (fromFile, Six)
+          RegularMove (Pawn, (fromFile, Two)) (_, (_, Four)) -> Just (fromFile, Three)
+          RegularMove (Pawn, (fromFile, Seven)) (_, (_, Five)) -> Just (fromFile, Six)
           _ -> Nothing
 
 invalidatedCastles :: Player -> Move -> [CastleLocation]
 invalidatedCastles player (Castle _) = (player,) <$> castleSides
-invalidatedCastles _ (Move (piece, from) (taking, to)) = castlesFrom piece from <> castlesTo taking to
+invalidatedCastles _ (RegularMove (piece, from) (taking, to)) = castlesFrom piece from <> castlesTo taking to
   where
     castlesFrom Rook (A, One) = [(White, Queenside)]
     castlesFrom Rook (H, One) = [(White, Kingside)]

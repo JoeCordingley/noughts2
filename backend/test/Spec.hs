@@ -1,6 +1,6 @@
 import Chess.Data
 import Chess.Data (MoveAndAppendation (MoveAndAppendation))
-import Chess.Game (applyMoveToBoard, attackingMoves, fromMoves, gameCheckType, legalMoves, simpleMoves, startingBoard, startingGame)
+import Chess.Game (applyMoveToBoard, attackingMoves, gameCheckType, legalMoves, simpleMoves, startingBoard, startingGame)
 import Chess.Notation as Notation
 import Chess.Notation.Parser as Parser
 import qualified Data.Set as Set
@@ -90,7 +90,7 @@ testFenParser = testGroup "fenParser" [testCase "openingBoard" $ actual @?= expe
 testLegalMoves :: TestTree
 testLegalMoves = testGroup "legalMoves" [testCase "openingBoard" $ Set.fromList actual @?= Set.fromList expected]
   where
-    actual = map show . Notation.notateMoves . map (fmap gameCheckType) $ legalMoves startingGame
+    actual = Notation.notateMoves . map (fmap gameCheckType) $ legalMoves startingGame
     expected = ["a3", "a4", "b3", "b4", "c3", "c4", "d3", "d4", "e3", "e4", "f3", "f4", "g3", "g4", "h3", "h4", "Na3", "Nc3", "Nf3", "Nh3"]
 
 testAttackingMoves :: TestTree
