@@ -2,11 +2,11 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
 
-module Chess.Game (play, GetAction, Board, Result (..), Player (..), Square, Rank (..), File (..), legalMoves, PieceType (..), ranks, files, startingBoard, fromMoves, Action (..), startingGame, attackingMoves, isUnderCheck, simpleMoves, applyMoveToBoard) where
+module Chess.Game (play, GetAction, Board, Result (..), Player (..), Square, Rank (..), File (..), legalMoves, PieceType (..), ranks, files, startingBoard, fromMoves, Action (..), startingGame, attackingMoves, isUnderCheck, simpleMoves, applyMoveToBoard, gameCheckType) where
 
 import Chess.Data
-import Chess.Lib (singletonMaybe)
-import Control.Monad (guard)
+import Chess.Lib (guarded, singletonMaybe)
+import Control.Monad (guard, (<=<), (>=>))
 import Data.List (singleton)
 import qualified Data.Map as Map
 import Data.Maybe (isJust, isNothing, maybeToList)
@@ -53,8 +53,8 @@ startingBoard =
 playMove :: (Functor f) => GetAction f -> PlayMove f
 playMove = undefined
 
-matches :: NotatedMove -> Move -> Maybe CheckType -> Bool
-matches (NotatedMove p1 (maybeOriginFile, maybeOriginRank) x1 d1 checkStatus) (Move (p2, (of2, or2)) (x2, d2)) maybeCheckType =
+matches :: NotatedMove -> Move -> Bool
+matches (NotatedMove (NotatedMoveValues p1 maybeOriginFile maybeOriginRank x1 d1)) (Move (p2, (of2, or2)) (x2, d2)) =
   p1 == p2
     && ( case x1 of
            Takes -> isJust x2
@@ -63,7 +63,6 @@ matches (NotatedMove p1 (maybeOriginFile, maybeOriginRank) x1 d1 checkStatus) (M
     && d1 == d2
     && all (== of2) maybeOriginFile
     && all (== or2) maybeOriginRank
-    && maybeCheckType == checkStatus
 
 checkBoardStatus :: Game -> Maybe CheckStatus
 checkBoardStatus game = case (null $ legalMoves game, isUnderCheck player board) of
@@ -80,11 +79,16 @@ type GetAction f = Game -> f Action
 startingGame :: Game
 startingGame = Game {playerToMove = White, gameBoard = startingBoard, castlesAvailable = Set.fromList allCastles, enPassantSquare = Nothing, halfMoveClock = 0, fullMoveNumber = 1} where
 
-fromMoves :: [NotatedMove] -> Game -> Maybe Game
-fromMoves = foldr f pure
+fromMoves :: [MoveAndAppendation] -> Game -> Maybe Game
+fromMoves = foldr ((>=>) . f) pure
   where
-    f notatedMove g game = g =<< singletonMaybe [newGame | (move, newGame) <- legalMoves game, matches notatedMove move (maybeCheckType newGame)]
-    maybeCheckType game = checkType =<< checkBoardStatus game
+    f (MoveAndAppendation notatedMove appendation) game = do
+      guarded matchesCheckType =<< singletonMaybe [newGame | (move, newGame) <- legalMoves game, matches notatedMove move]
+      where
+        matchesCheckType game = appendation == gameCheckType game
+
+gameCheckType :: Game -> Maybe CheckType
+gameCheckType = checkType <=< checkBoardStatus
 
 type PlayMove f = Game -> f (Status, Game)
 
@@ -153,9 +157,7 @@ attackingMoves player board = do
 isUnderCheck :: Player -> Board -> Bool
 isUnderCheck player board = King `elem` piecesUnderAttack
   where
-    piecesUnderAttack = [piece | piece <- map pieceOf $ attackingMoves (other player) board]
-      where
-        pieceOf (_, (piece, _)) = piece
+    piecesUnderAttack = [piece | (_, (piece, _)) <- attackingMoves (other player) board]
 
 linesOfMovement :: Piece -> Square -> [[Square]]
 linesOfMovement (player, pieceType) = case pieceType of

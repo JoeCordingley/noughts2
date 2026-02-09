@@ -1,6 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
-module Chess.Notation.Parser (Parser, fen, fullMove, parseMove, moveText) where
+module Chess.Notation.Parser (Parser, fen, fullMove, parseMove, moveText, parseMoveWithAppendation) where
 
 import Chess.Data hiding (move)
 import Chess.Lib (withInput)
@@ -31,24 +31,24 @@ fullMove = do
   n <- decimal
   dots <- parseDots
   white <- case dots of
-    OneDot -> Just <$> lexeme parseMove
+    OneDot -> Just <$> lexeme parseMoveWithAppendation
     ThreeDots -> pure Nothing
-  black <- optional $ lexeme parseMove
+  black <- optional $ lexeme parseMoveWithAppendation
   return $ FullMove n white black
 
+parseMoveWithAppendation :: Parser MoveAndAppendation
+parseMoveWithAppendation = MoveAndAppendation <$> parseMove <*> optional appendation
+
 parseMove :: Parser NotatedMove
-parseMove = (try disambiguated <|> simple)
+parseMove = NotatedMove <$> (try disambiguated <|> simple)
   where
-    disambiguated = NotatedMove <$> pieceType <*> fuzzySquare <*> parseMoveType <*> square <*> optional appendation
-    simple = move' <$> pieceType <*> parseMoveType <*> square <*> optional appendation
+    disambiguated = NotatedMoveValues <$> pieceType <*> optional file <*> optional rank <*> parseMoveType <*> square
+    simple = move' <$> pieceType <*> parseMoveType <*> square
       where
-        move' notatedMovePiece moveType notatedToSquare notatedCheckStatus = NotatedMove {notatedMovePiece, maybeFrom = (Nothing, Nothing), moveType, notatedToSquare, notatedCheckStatus}
+        move' notatedMovePiece moveType notatedToSquare = NotatedMoveValues {notatedMovePiece, fromFile = Nothing, fromRank = Nothing, moveType, notatedToSquare}
 
 appendation :: Parser CheckType
 appendation = (Check <$ char '+') <|> (Mate <$ char '#')
-
-fuzzySquare :: Parser (Maybe File, Maybe Rank)
-fuzzySquare = (,) <$> optional file <*> optional rank
 
 parseMoveType :: Parser MoveType
 parseMoveType = Takes <$ "x" <|> pure To

@@ -1,6 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
-module Chess.Data where
+module Chess.Data (NotatedMoveValues (..), NotatedMove (..), Square, Board, Move (..), Game (..), CastleSide (..), Player (..), CastleLocation, PieceType (..), Rank (..), File (..), MoveType (..), CheckType (..), MoveAndAppendation (..), Piece, SimpleMove, AttackingMove, CheckStatus (..), ranks, files, pieces, allCastles, fromAttackingMove, fromSimpleMove, castleSides, fromPieces, checkType, pieceLocations, pieceTypes, notatedMove) where
 
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -87,7 +87,14 @@ type AttackingMove = ((PieceType, Square), (PieceType, Square))
 
 type SimpleMove = ((PieceType, Square), Square)
 
-data NotatedMove = NotatedMove {notatedMovePiece :: PieceType, maybeFrom :: (Maybe File, Maybe Rank), moveType :: MoveType, notatedToSquare :: Square, notatedCheckStatus :: Maybe CheckType} deriving (Eq)
+data NotatedMove = NotatedMove NotatedMoveValues | NotatedCastle CastleSide deriving (Eq)
+
+notatedMove :: PieceType -> (Maybe File, Maybe Rank) -> MoveType -> Square -> NotatedMove
+notatedMove notatedMovePiece (fromFile, fromRank) moveType notatedToSquare = NotatedMove $ NotatedMoveValues {notatedMovePiece, fromFile, fromRank, moveType, notatedToSquare}
+
+data NotatedMoveValues = NotatedMoveValues {notatedMovePiece :: PieceType, fromFile :: Maybe File, fromRank :: Maybe Rank, moveType :: MoveType, notatedToSquare :: Square} deriving (Eq)
+
+data MoveAndAppendation = MoveAndAppendation NotatedMove (Maybe CheckType) deriving (Eq)
 
 type AmbiguousSquare = (Maybe File, Maybe Rank)
 
