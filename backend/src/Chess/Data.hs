@@ -1,6 +1,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE PatternSynonyms #-}
 
-module Chess.Data (NotatedMoveValues (..), NotatedMove (..), Square, Board, Move (..), Game (..), CastleSide (..), Player (..), CastleLocation, PieceType (..), Rank (..), File (..), MoveType (..), CheckType (..), MoveAndAppendation (..), Piece, SimpleMove, AttackingMove, CheckStatus (..), ranks, files, pieces, allCastles, fromAttackingMove, fromSimpleMove, castleSides, fromPieces, checkType, pieceLocations, pieceTypes, notatedMove) where
+module Chess.Data (NotatedMoveValues (..), NotatedMove, Square, Board, ChessMove (..), Game (..), CastleSide (..), Player (..), CastleLocation, PieceType (..), Rank (..), File (..), MoveType (..), CheckType (..), MoveAndAppendation (..), Piece, NonAttackingMove, AttackingMove, CheckStatus (..), ranks, files, pieces, allCastles, fromAttackingMove, fromNonAttackingMove, castleSides, fromPieces, checkType, pieceLocations, pieceTypes, notatedMove, UnambiguousMove, UnambiguousMovement, Movement (..), pattern RegularMovement, attackingMove, nonAttackingMove, movePiece, filesFrom, ranksFrom) where
 
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -28,10 +29,65 @@ data File
   | F
   | G
   | H
-  deriving (Eq, Ord, Enum, Bounded, Show)
+  deriving (Eq, Ord, Enum, Show)
 
 files :: [File]
 files = [A, B, C, D, E, F, G, H]
+
+nextFile :: File -> Maybe File
+nextFile A = Just B
+nextFile B = Just C
+nextFile C = Just D
+nextFile D = Just E
+nextFile E = Just F
+nextFile F = Just G
+nextFile G = Just H
+nextFile H = Nothing
+
+previousFile :: File -> Maybe File
+previousFile A = Nothing
+previousFile B = Just A
+previousFile C = Just B
+previousFile D = Just C
+previousFile E = Just D
+previousFile F = Just E
+previousFile G = Just F
+previousFile H = Just G
+
+nextRank :: Rank -> Maybe Rank
+nextRank One = Just Two
+nextRank Two = Just Three
+nextRank Three = Just Four
+nextRank Four = Just Five
+nextRank Five = Just Six
+nextRank Six = Just Seven
+nextRank Seven = Just Eight
+nextRank Eight = Nothing
+
+previousRank :: Rank -> Maybe Rank
+previousRank One = Nothing
+previousRank Two = Just One
+previousRank Three = Just Two
+previousRank Four = Just Three
+previousRank Five = Just Four
+previousRank Six = Just Five
+previousRank Seven = Just Six
+previousRank Eight = Just Seven
+
+iterateFrom :: (a -> Maybe a) -> a -> [a]
+iterateFrom next = maybe [] extend . next
+  where
+    extend a = a : iterateFrom next a
+
+filesFrom :: Ordering -> File -> [File]
+filesFrom GT = iterateFrom nextFile
+filesFrom EQ = iterateFrom Just
+filesFrom LT = iterateFrom previousFile
+
+ranksFrom :: Ordering -> Rank -> [Rank]
+ranksFrom GT = iterateFrom nextRank
+ranksFrom EQ = iterateFrom Just
+ranksFrom LT = iterateFrom previousRank
 
 data Rank
   = One
@@ -42,7 +98,7 @@ data Rank
   | Six
   | Seven
   | Eight
-  deriving (Eq, Ord, Enum, Bounded, Show)
+  deriving (Eq, Ord, Enum, Show)
 
 ranks :: [Rank]
 ranks = [One, Two, Three, Four, Five, Six, Seven, Eight]
@@ -75,28 +131,44 @@ data Player
   | Black
   deriving (Show, Eq, Ord)
 
-data Move = RegularMove (PieceType, Square) (Maybe PieceType, Square) | Castle CastleSide deriving (Show, Eq)
+data ChessMove a = RegularMove a | Castle CastleSide deriving (Show, Eq)
 
-fromAttackingMove :: ((PieceType, Square), (PieceType, Square)) -> Move
-fromAttackingMove (from, (piece, to)) = RegularMove from (Just piece, to)
+type UnambiguousMove = ChessMove UnambiguousMovement
 
-fromSimpleMove :: ((PieceType, Square), Square) -> Move
-fromSimpleMove (from, to) = RegularMove from (Nothing, to)
+type UnambiguousMovement = Movement (PieceType, Square) (Maybe PieceType, Square)
 
-type AttackingMove = ((PieceType, Square), (PieceType, Square))
+data Movement a b = Movement {from :: a, to :: b} deriving (Eq, Show)
 
-type SimpleMove = ((PieceType, Square), Square)
+fromAttackingMove :: AttackingMove -> UnambiguousMove
+fromAttackingMove (Movement from (piece, to)) = regularMove from (Just piece, to)
 
-data NotatedMove = NotatedMove NotatedMoveValues | NotatedCastle CastleSide deriving (Eq)
+movePiece :: (a, b) -> a
+movePiece = fst
+
+fromNonAttackingMove :: NonAttackingMove -> UnambiguousMove
+fromNonAttackingMove (Movement from to) = regularMove from (Nothing, to)
+
+regularMove :: a -> b -> ChessMove (Movement a b)
+regularMove a b = RegularMove $ Movement a b
+
+type AttackingMove = Movement (PieceType, Square) (PieceType, Square)
+
+attackingMove :: PieceType -> Square -> PieceType -> Square -> AttackingMove
+attackingMove piece from attacking at = Movement (piece, from) (attacking, at)
+
+nonAttackingMove :: PieceType -> Square -> Square -> NonAttackingMove
+nonAttackingMove piece from to = Movement (piece, from) to
+
+type NonAttackingMove = Movement (PieceType, Square) Square
+
+type NotatedMove = ChessMove NotatedMoveValues
 
 notatedMove :: PieceType -> (Maybe File, Maybe Rank) -> MoveType -> Square -> NotatedMove
-notatedMove notatedMovePiece (fromFile, fromRank) moveType notatedToSquare = NotatedMove $ NotatedMoveValues {notatedMovePiece, fromFile, fromRank, moveType, notatedToSquare}
+notatedMove notatedMovePiece notatedFrom moveType notatedToSquare = RegularMove $ NotatedMoveValues {notatedMovePiece, notatedFrom, moveType, notatedToSquare}
 
-data NotatedMoveValues = NotatedMoveValues {notatedMovePiece :: PieceType, fromFile :: Maybe File, fromRank :: Maybe Rank, moveType :: MoveType, notatedToSquare :: Square} deriving (Eq)
+data NotatedMoveValues = NotatedMoveValues {notatedMovePiece :: PieceType, notatedFrom :: (Maybe File, Maybe Rank), moveType :: MoveType, notatedToSquare :: Square} deriving (Eq)
 
 data MoveAndAppendation = MoveAndAppendation NotatedMove (Maybe CheckType) deriving (Eq)
-
-type AmbiguousSquare = (Maybe File, Maybe Rank)
 
 data CheckType = Check | Mate deriving (Eq, Show)
 
@@ -119,3 +191,6 @@ type CastleLocation = (Player, CastleSide)
 
 allCastles :: [(Player, CastleSide)]
 allCastles = (,) <$> [White, Black] <*> castleSides
+
+pattern RegularMovement :: a -> b -> ChessMove (Movement a b)
+pattern RegularMovement a b = RegularMove (Movement a b)

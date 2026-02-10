@@ -2,17 +2,16 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
 
-module Chess.Game (play, GetAction, Board, Result (..), Player (..), Square, Rank (..), File (..), legalMoves, PieceType (..), ranks, files, startingBoard, Action (..), startingGame, attackingMoves, isUnderCheck, simpleMoves, applyMoveToBoard, gameCheckType) where
+module Chess.Game (play, GetAction, Board, Result (..), Player (..), Square, Rank (..), File (..), legalMoves, PieceType (..), ranks, files, startingBoard, Action (..), startingGame, attackingMoves, isUnderCheck, nonAttackingMoves, applyMoveToBoard, gameCheckType) where
 
 import Chess.Data
-import Chess.Lib (guarded, singletonMaybe)
-import Control.Monad (guard, (<=<), (>=>))
+import Control.Monad (guard, (<=<))
 import Data.List (singleton)
 import qualified Data.Map as Map
 import Data.Maybe (isJust, isNothing, maybeToList)
 import Data.Semigroup (First (..))
+import Data.Set (Set)
 import qualified Data.Set as Set
-import Debug.Trace (trace)
 
 data Result
   = Winner Player
@@ -23,7 +22,7 @@ data Status
   = Playing
   | Finished Result
 
-data Action = MoveAction Move | Resign
+data Action = MoveAction UnambiguousMove | Resign
 
 play :: (Monad f) => GetAction f -> f (Result, Game)
 play getAction = play' startingGame
@@ -73,14 +72,25 @@ gameCheckType = checkType <=< checkBoardStatus
 
 type PlayMove f = Game -> f (Status, Game)
 
-applyMoveToBoard :: Player -> Move -> Board -> Board
-applyMoveToBoard player (RegularMove (movePiece, fromSquare) (_, toSquare)) = Map.insert toSquare (player, movePiece) . Map.delete fromSquare
+applyMoveToBoard :: Player -> UnambiguousMove -> Board -> Board
+applyMoveToBoard player (RegularMovement (piece, fromSquare) (_, toSquare)) = applyMovementToBoard $ Movement ((player, piece), fromSquare) toSquare
+applyMoveToBoard player (Castle side) = case side of
+  Queenside -> applyMovementToBoard (Movement ((player, King), (E, homeRow)) (C, homeRow)) . applyMovementToBoard (Movement ((player, Rook), (A, homeRow)) (D, homeRow))
+  Kingside -> applyMovementToBoard (Movement ((player, King), (E, homeRow)) (G, homeRow)) . applyMovementToBoard (Movement ((player, Rook), (H, homeRow)) (F, homeRow))
+  where
+    homeRow = case player of
+      White -> One
+      Black -> Eight
 
-legalMoves :: Game -> [(Move, Game)]
-legalMoves (Game {gameBoard = board, playerToMove = player, castlesAvailable, halfMoveClock, fullMoveNumber}) = withInput advanceGame =<< attackingMoves' ++ simpleMoves'
+applyMovementToBoard :: Movement (Piece, Square) Square -> Board -> Board
+applyMovementToBoard (Movement (piece, from) to) = Map.delete from . Map.insert to piece
+
+legalMoves :: Game -> [(UnambiguousMove, Game)]
+legalMoves (Game {gameBoard = board, playerToMove = player, castlesAvailable, halfMoveClock, fullMoveNumber}) = withInput advanceGame =<< attackingMoves' ++ simpleMoves' -- ++ castles'
   where
     attackingMoves' = map fromAttackingMove $ attackingMoves player board
-    simpleMoves' = map fromSimpleMove $ simpleMoves player board
+    simpleMoves' = map fromNonAttackingMove $ nonAttackingMoves player board
+    castles' = map Castle $ castles player board castlesAvailable
     withInput f a = (a,) <$> f a
     advanceGame move = newGame <$ guard legal
       where
@@ -92,17 +102,20 @@ legalMoves (Game {gameBoard = board, playerToMove = player, castlesAvailable, ha
           White -> id
         removeCastles = foldr (.) id [Set.delete castle | castle <- invalidatedCastles player move]
         updateHalfMoveClock = case move of
-          RegularMove (Pawn, _) _ -> const 0
-          RegularMove _ (Just _, _) -> const 0
+          RegularMove (Movement (Pawn, _) _) -> const 0
+          RegularMove (Movement _ (Just _, _)) -> const 0
           _ -> (+ 1)
         enPassantSquare = case move of
-          RegularMove (Pawn, (fromFile, Two)) (_, (_, Four)) -> Just (fromFile, Three)
-          RegularMove (Pawn, (fromFile, Seven)) (_, (_, Five)) -> Just (fromFile, Six)
+          RegularMovement (Pawn, (fromFile, Two)) (_, (_, Four)) -> Just (fromFile, Three)
+          RegularMovement (Pawn, (fromFile, Seven)) (_, (_, Five)) -> Just (fromFile, Six)
           _ -> Nothing
 
-invalidatedCastles :: Player -> Move -> [CastleLocation]
+castles :: Player -> Board -> Set CastleLocation -> [CastleSide]
+castles = undefined
+
+invalidatedCastles :: Player -> UnambiguousMove -> [CastleLocation]
 invalidatedCastles player (Castle _) = (player,) <$> castleSides
-invalidatedCastles _ (RegularMove (piece, from) (taking, to)) = castlesFrom piece from <> castlesTo taking to
+invalidatedCastles _ (RegularMovement (piece, from) (taking, to)) = castlesFrom piece from <> castlesTo taking to
   where
     castlesFrom Rook (A, One) = [(White, Queenside)]
     castlesFrom Rook (H, One) = [(White, Kingside)]
@@ -114,12 +127,12 @@ invalidatedCastles _ (RegularMove (piece, from) (taking, to)) = castlesFrom piec
     castlesTo (Just piece) = castlesFrom piece
     castlesTo Nothing = const []
 
-simpleMoves :: Player -> Board -> [SimpleMove]
-simpleMoves playerToMove gameBoard = do
+nonAttackingMoves :: Player -> Board -> [NonAttackingMove]
+nonAttackingMoves playerToMove gameBoard = do
   (fromSquare, movePiece) <- pieceLocations playerToMove gameBoard
   lineOfMovement <- linesOfMovement (playerToMove, movePiece) fromSquare
   toSquare <- takeWhile unoccupied lineOfMovement
-  return ((movePiece, fromSquare), toSquare)
+  return $ nonAttackingMove movePiece fromSquare toSquare
   where
     unoccupied space = isNothing $ Map.lookup space gameBoard
 
@@ -130,7 +143,7 @@ attackingMoves player board = do
   maybeToList $ do
     (toSquare, (player', pieceType)) <- firstJust (fmapSnd pieceAt) spaces
     guard $ player' == other player
-    return ((movePiece, fromSquare), (pieceType, toSquare))
+    return $ attackingMove movePiece fromSquare pieceType toSquare
   where
     fmapSnd f a = (,) a <$> f a
     pieceAt space = Map.lookup space board
@@ -138,7 +151,7 @@ attackingMoves player board = do
 isUnderCheck :: Player -> Board -> Bool
 isUnderCheck player board = King `elem` piecesUnderAttack
   where
-    piecesUnderAttack = [piece | (_, (piece, _)) <- attackingMoves (other player) board]
+    piecesUnderAttack = [piece | Movement _ (piece, _) <- attackingMoves (other player) board]
 
 linesOfMovement :: Piece -> Square -> [[Square]]
 linesOfMovement (player, pieceType) = case pieceType of
@@ -190,7 +203,7 @@ distances (a1, b1) (a2, b2) = (a1 `distance` a2, b1 `distance` b2)
 bishopLines :: Square -> [[Square]]
 bishopLines space = map (lineExtendingFrom space) diagonalDirections
   where
-    diagonalDirections = (,) <$> [-1, 1] <*> [-1, 1]
+    diagonalDirections = (,) <$> [LT, GT] <*> [LT, GT]
 
 queenLines :: Square -> [[Square]]
 queenLines space = bishopLines space ++ rookLines space
@@ -198,22 +211,17 @@ queenLines space = bishopLines space ++ rookLines space
 rookLines :: Square -> [[Square]]
 rookLines space = map (lineExtendingFrom space) orthogonalDirections
   where
-    orthogonalDirections = map (,0) [-1, 1] ++ map (0,) [-1, 1]
+    orthogonalDirections = map (,EQ) [LT, GT] ++ map (EQ,) [LT, GT]
 
 kingMoves :: Square -> [Square]
 kingMoves space = filter (kingMove space) allSpaces
   where
     kingMove x y = uncurry max (distances x y) == 1
 
-lineExtendingFrom :: Square -> (Int, Int) -> [Square]
+lineExtendingFrom :: Square -> (Ordering, Ordering) -> [Square]
 lineExtendingFrom (file, rank) (fileIncrement, rankIncrement) =
-  enumFromByIncrement file fileIncrement
-    `zip` enumFromByIncrement rank rankIncrement
-
-enumFromByIncrement :: (Enum a, Bounded a) => a -> Int -> [a]
-enumFromByIncrement a inc = map toEnum [init, init + inc .. fromEnum $ maxBound `asTypeOf` a]
-  where
-    init = fromEnum a
+  filesFrom fileIncrement file
+    `zip` ranksFrom rankIncrement rank
 
 allSpaces :: [Square]
 allSpaces = (,) <$> files <*> ranks

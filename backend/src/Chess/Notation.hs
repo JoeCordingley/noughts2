@@ -1,5 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TupleSections #-}
 
 module Chess.Notation (FullMove (..), fen, Result (..), MoveText (..), flattenMove, NotatedMove (..), fileChar, rankChar, rankChars, fileChars, pieceTypeChar, pieceTypeChars, pieceChars, FenElement (..), castleChar, castleChars, activeColourChar, notateMoves, fromMoves) where
@@ -24,7 +25,7 @@ flattenMove :: FullMove -> [MoveAndAppendation]
 flattenMove (FullMove _ white black) = toList white ++ toList black
 
 printMove :: MoveAndAppendation -> String
-printMove (MoveAndAppendation (NotatedMove (NotatedMoveValues movePiece fromFile fromRank moveType (toFile, toRank))) appendation) = notatePiece movePiece <> foldMap notateFile fromFile <> foldMap notateRank fromRank <> notateMoveType moveType <> notateFile toFile <> notateRank toRank <> foldMap notateAppendation appendation
+printMove (MoveAndAppendation (RegularMove (NotatedMoveValues movePiece (fromFile, fromRank) moveType (toFile, toRank))) appendation) = notatePiece movePiece <> foldMap notateFile fromFile <> foldMap notateRank fromRank <> notateMoveType moveType <> notateFile toFile <> notateRank toRank <> foldMap notateAppendation appendation
 
 notateAppendation :: CheckType -> String
 notateAppendation Check = "+"
@@ -144,25 +145,6 @@ piecePlacement board = intercalate "/" $ map rankPlacement (reverse ranks)
           (Nothing, NumberOfSquares n : rest) -> NumberOfSquares (n + 1) : rest
           (Nothing, _) -> NumberOfSquares 1 : acc
 
--- notateMove :: Move -> [Move] -> NotatedMove
--- notateMove (Move (piece, (fromFile, fromRank)) (attacking, toSquare)) = NotatedMove . foldr disambiguate initial
---  where
---    initial = NotatedMoveValues {notatedMovePiece = piece, fromFile = Nothing, fromRank = Nothing, moveType = moveType, notatedToSquare = toSquare}
---    moveType = case attacking of
---      Just _ -> Takes
---      Nothing -> To
---    disambiguate (Move (piece', (fromFile', fromRank')) (_, toSquare'))
---      | toSquare == toSquare' && piece == piece' =
---          if fromFile == fromFile'
---            then updateRank
---            else
---              if fromRank == fromRank'
---                then updateFile
---                else id
---    disambiguate _ = id
---    updateRank notated = notated {fromRank = Just fromRank}
---    updateFile notated = notated {fromFile = Just fromFile}
-
 type WriterReader w a = Compose (Writer w) (Reader w) a
 
 type Counts a = Map a Int
@@ -175,20 +157,20 @@ writerReader = Compose . writer . mapfst reader
 runWriterReader :: WriterReader w a -> a
 runWriterReader = uncurry runReader . runWriter . getCompose
 
-notateMoves :: [(Move, Maybe CheckType)] -> [String]
-notateMoves = runWriterReader . traverse (fmap (show . uncurry MoveAndAppendation) . traversefst f)
+notateMoves :: [(UnambiguousMove, Maybe CheckType)] -> [String]
+notateMoves = runWriterReader . traverse (fmap (show . uncurry MoveAndAppendation) . traversefst notateMove)
   where
     one a = Map.singleton a 1
     traversefst f (a, b) = (,b) <$> f a
-    f move@(RegularMove (piece, (fromFile, fromRank)) _) = writerReader (NotatedMove . h, (one (piece, fromFile), one (piece, fromRank)))
+    notateMove (RegularMovement (piece, (fromFile, fromRank)) to) = writerReader (RegularMove . notateMoveValues . compress, (one (piece, fromFile), one (piece, fromRank)))
       where
-        h (files, ranks) = notateMoveValues move fileDuplicated rankDuplicated
+        compress (files, ranks) = Movement (piece, (fromFile <$ guard fileDuplicated, fromRank <$ guard rankDuplicated)) to
           where
             fileDuplicated = files ! (piece, fromFile) > 1
             rankDuplicated = ranks ! (piece, fromRank) > 1
 
-notateMoveValues :: Move -> Bool -> Bool -> NotatedMoveValues
-notateMoveValues (RegularMove (piece, (fromFile, fromRank)) (attacking, toSquare)) fileDuplicated rankDuplicated = NotatedMoveValues {notatedMovePiece = piece, fromFile = fromFile <$ guard fileDuplicated, fromRank = fromRank <$ guard rankDuplicated, moveType = moveType, notatedToSquare = toSquare}
+notateMoveValues :: Movement (PieceType, (Maybe File, Maybe Rank)) (Maybe PieceType, Square) -> NotatedMoveValues
+notateMoveValues (Movement (piece, from) (attacking, toSquare)) = NotatedMoveValues {notatedMovePiece = piece, notatedFrom = from, moveType, notatedToSquare = toSquare}
   where
     moveType = case attacking of
       Just _ -> Takes
@@ -202,8 +184,8 @@ fromMoves = foldr ((>=>) . f) pure
       where
         matchesCheckType game = appendation == gameCheckType game
 
-matches :: NotatedMove -> Move -> Bool
-matches (NotatedMove (NotatedMoveValues p1 maybeOriginFile maybeOriginRank x1 d1)) (RegularMove (p2, (of2, or2)) (x2, d2)) =
+matches :: NotatedMove -> UnambiguousMove -> Bool
+matches (RegularMove (NotatedMoveValues p1 (maybeOriginFile, maybeOriginRank) x1 d1)) (RegularMovement (p2, (of2, or2)) (x2, d2)) =
   p1 == p2
     && ( case x1 of
            Takes -> isJust x2

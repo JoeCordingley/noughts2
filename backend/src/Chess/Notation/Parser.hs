@@ -40,12 +40,13 @@ parseMoveWithAppendation :: Parser MoveAndAppendation
 parseMoveWithAppendation = MoveAndAppendation <$> parseMove <*> optional appendation
 
 parseMove :: Parser NotatedMove
-parseMove = NotatedMove <$> (try disambiguated <|> simple)
+parseMove = RegularMove <$> (try disambiguated <|> simple)
   where
-    disambiguated = NotatedMoveValues <$> pieceType <*> optional file <*> optional rank <*> parseMoveType <*> square
+    disambiguated = NotatedMoveValues <$> pieceType <*> fuzzySquare <*> parseMoveType <*> square
+    fuzzySquare = (,) <$> optional file <*> optional rank
     simple = move' <$> pieceType <*> parseMoveType <*> square
       where
-        move' notatedMovePiece moveType notatedToSquare = NotatedMoveValues {notatedMovePiece, fromFile = Nothing, fromRank = Nothing, moveType, notatedToSquare}
+        move' notatedMovePiece moveType notatedToSquare = NotatedMoveValues {notatedMovePiece, notatedFrom = (Nothing, Nothing), moveType, notatedToSquare}
 
 appendation :: Parser CheckType
 appendation = (Check <$ char '+') <|> (Mate <$ char '#')
