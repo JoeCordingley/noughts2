@@ -8,16 +8,15 @@ import Chess.Notation.Parser as Parser
 import Control.Applicative (many)
 import Control.Monad (void)
 import Control.Monad.State (runStateT)
+import Data.Attoparsec.Text (IResult (..), endOfInput, parseOnly)
 import qualified Data.Set as Set
 import Data.Text (Text, pack)
 import Data.Text.IO as T
 import Test.Tasty
 import Test.Tasty.HUnit
-import Text.Megaparsec (eof, errorBundlePretty, parse)
-import Text.Megaparsec.Debug
 
 readPgns :: IO [(String, Text)]
-readPgns = traverse readPgn ["Mamedyarov"]
+readPgns = traverse readPgn ["Mamedyarov", "OneGame"]
   where
     readPgn name = (name,) <$> T.readFile ("pgns/" <> name <> ".pgn")
 
@@ -40,10 +39,10 @@ main = do
   defaultMain $
     testGroup
       "All Tests"
-      [ -- testOneMove,
+      [ testOneMove,
         testFullMoveParser,
         testMoveParser,
-        testMoveParser2,
+        -- testMoveParser2,
         -- testMoveTextParser
         -- testFenParser,
         -- testLegalMoves,
@@ -74,11 +73,12 @@ testMoveTextParser = testCase "Movetext" $ actual @?= expected
     expectedResult = Just WinForWhite
 
 parseShouldSucceed ::
+  (Show a) =>
   Parser a ->
   Text ->
   a
 parseShouldSucceed p =
-  either (error . errorBundlePretty) id . parse (p <* eof) "<test>"
+  either (error . show) id . parseOnly (p <* endOfInput)
 
 shortGamePgn :: Text
 shortGamePgn = "1.d4 Nf6 2.Nd2 e5 3.dxe5 Ng4 4.h3 1-0"
@@ -159,4 +159,4 @@ testReadPgns = testGroup "readPgns" . map testReadPgnCase
   where
     testReadPgnCase (name, fileText) = testCase name $ actual @?= ()
       where
-        actual = parseShouldSucceed (void $ many $ Parser.parsePgn) fileText
+        actual = parseShouldSucceed (void $ Parser.lexeme $ many $ Parser.parsePgn) fileText

@@ -24,7 +24,7 @@ dependencies:
 - containers
 - mtl
 - text
-- megaparsec
+- attoparsec
 
 ghc-options:
 - -Wall
