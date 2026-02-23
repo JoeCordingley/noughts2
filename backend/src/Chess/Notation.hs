@@ -2,11 +2,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
-module Chess.Notation (FullMove (..), fen, Result (..), MoveText (..), flattenMove, NotatedMove (..), fileChar, rankChar, rankChars, fileChars, pieceTypeChar, pieceTypeChars, pieceChars, FenElement (..), castleChar, castleChars, activeColourChar, notateMoves, fromMoves, PGN (..)) where
+module Chess.Notation (FullMove (..), fen, Result (..), MoveText (..), flattenMove, NotatedMove, fileChar, rankChar, rankChars, fileChars, pieceTypeChar, pieceTypeChars, pieceChars, FenElement (..), castleChar, castleChars, activeColourChar, notateMoves, fromMoves, PGN (..), printMove, MoveAndAppendation (..)) where
 
 import Chess.Data
 import Chess.Game (gameCheckType, legalMoves)
-import Chess.Lib (guarded, singletonMaybe, withInput)
+import Chess.Lib (Counts, getCount, guarded, one, singletonMaybe, traversefst, withInput)
 import Control.Monad (guard, (>=>))
 import Control.Monad.Reader (Reader, reader, runReader)
 import Control.Monad.Writer (Writer, runWriter, writer)
@@ -14,14 +14,13 @@ import Data.Char (toLower)
 import Data.Foldable (Foldable (toList))
 import Data.Functor.Compose (Compose (..))
 import Data.List as List (intercalate, singleton)
-import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Maybe (isJust, isNothing)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 
-data PGN = PGN {tags :: [(Text, Text)], moveText :: MoveText}
+data PGN = PGN {tags :: [(Text, Text)], moveText :: MoveText} deriving (Show)
 
 flattenMove :: FullMove -> [MoveAndAppendation]
 flattenMove (FullMove _ white black) = toList white ++ toList black
@@ -29,7 +28,7 @@ flattenMove (FullMove _ white black) = toList white ++ toList black
 printMove :: MoveAndAppendation -> String
 printMove (MoveAndAppendation move appendation) =
   ( case move of
-      RegularMove (NotatedMoveValues movePiece (fromFile, fromRank) moveType (toFile, toRank) promotion) -> notatePiece movePiece <> foldMap notateFile fromFile <> foldMap notateRank fromRank <> notateMoveType moveType <> notateFile toFile <> notateRank toRank <> foldMap notatePromotion promotion
+      RegularMove (NotatedMoveValues movePiece (fromFile, fromRank) moveType (toFile, toRank)) promotion -> notatePiece movePiece <> foldMap notateFile fromFile <> foldMap notateRank fromRank <> notateMoveType moveType <> notateFile toFile <> notateRank toRank <> foldMap notatePromotion promotion
       Castle Queenside -> "O-O-O"
       Castle Kingside -> "O-O"
   )
@@ -55,9 +54,6 @@ notateFile file = List.singleton $ fileChar file
 notatePiece :: PieceType -> String
 notatePiece Pawn = ""
 notatePiece piece = [pieceTypeChar piece]
-
-instance Show MoveAndAppendation where
-  show = printMove
 
 data FullMove = FullMove
   { moveNumber :: Int,
@@ -158,8 +154,6 @@ piecePlacement board = intercalate "/" $ map rankPlacement (reverse ranks)
 
 type WriterReader w a = Compose (Writer w) (Reader w) a
 
-type Counts a = Map a Int
-
 writerReader :: (Monoid w) => (w -> a, w) -> WriterReader w a
 writerReader = Compose . writer . mapfst reader
   where
@@ -168,20 +162,21 @@ writerReader = Compose . writer . mapfst reader
 runWriterReader :: WriterReader w a -> a
 runWriterReader = uncurry runReader . runWriter . getCompose
 
-notateMoves :: [(ChessMove MoveData, Maybe CheckType)] -> [String]
+notateMoves :: [(ChessMove CommonMove, Maybe CheckType)] -> [String]
 notateMoves = runWriterReader . traverse (fmap (show . uncurry MoveAndAppendation) . traversefst notateMove)
   where
-    one a = Map.singleton a 1
-    traversefst f (a, b) = (,b) <$> f a
-    notateMove (RegularMovement (piece, (fromFile, fromRank)) to promotion) = writerReader (RegularMove . notateMoveValues . compress, (one (piece, fromFile), one (piece, fromRank)))
+    notateMove :: ChessMove CommonMove -> WriterReader (Counts (PieceType, File), Counts (PieceType, Rank)) (ChessMove NotatedMoveValues)
+    notateMove (RegularMove (Movement (piece, (fromFile, fromRank)) to) promotion) = writerReader (regularNotatedMove . notateMoveValues . compress, (one (piece, fromFile), one (piece, fromRank)))
       where
-        compress (files, ranks) = Movement (piece, (fromFile <$ guard fileDuplicated, fromRank <$ guard rankDuplicated)) to
+        regularNotatedMove move = RegularMove move promotion
+        compress (files', ranks') = Movement (piece, (fromFile <$ guard fileDuplicated, fromRank <$ guard rankDuplicated)) to
           where
-            fileDuplicated = files ! (piece, fromFile) > 1
-            rankDuplicated = ranks ! (piece, fromRank) > 1
+            fileDuplicated = getCount files' (piece, fromFile) > 1
+            rankDuplicated = getCount ranks' (piece, fromRank) > 1
+    notateMove (Castle side) = pure $ Castle side
 
 notateMoveValues :: Movement (PieceType, (Maybe File, Maybe Rank)) (Maybe PieceType, Square) -> NotatedMoveValues
-notateMoveValues (Movement (piece, from) (attacking, toSquare)) = NotatedMoveValues {notatedMovePiece = piece, notatedFrom = from, moveType, notatedToSquare = toSquare, notatedPromotion = Nothing}
+notateMoveValues (Movement (piece, from) (attacking, toSquare)) = NotatedMoveValues {notatedMovePiece = piece, notatedFrom = from, moveType, notatedToSquare = toSquare}
   where
     moveType = case attacking of
       Just _ -> Takes
@@ -190,13 +185,13 @@ notateMoveValues (Movement (piece, from) (attacking, toSquare)) = NotatedMoveVal
 fromMoves :: [MoveAndAppendation] -> Game -> Maybe Game
 fromMoves = foldr ((>=>) . f) pure
   where
-    f (MoveAndAppendation notatedMove appendation) game = do
-      guarded matchesCheckType =<< singletonMaybe [newGame | (move, newGame) <- legalMoves game, matches notatedMove move]
+    f (MoveAndAppendation notatedMove' appendation) game = do
+      guarded matchesCheckType =<< singletonMaybe [newGame | (move, newGame) <- legalMoves game, matches notatedMove' move]
       where
-        matchesCheckType game = appendation == gameCheckType game
+        matchesCheckType game' = appendation == gameCheckType game'
 
-matches :: NotatedMove -> ChessMove MoveData -> Bool
-matches (RegularMove (NotatedMoveValues p1 (maybeOriginFile, maybeOriginRank) x1 d1 pr1)) (RegularMovement (p2, (of2, or2)) (x2, d2) pr2) =
+matches :: NotatedMove -> ChessMove CommonMove -> Bool
+matches (RegularMove (NotatedMoveValues p1 (maybeOriginFile, maybeOriginRank) x1 d1) pr1) (RegularMove (Movement (p2, (of2, or2)) (x2, d2)) pr2) =
   p1 == p2
     && ( case x1 of
            Takes -> isJust x2
@@ -206,3 +201,10 @@ matches (RegularMove (NotatedMoveValues p1 (maybeOriginFile, maybeOriginRank) x1
     && all (== of2) maybeOriginFile
     && all (== or2) maybeOriginRank
     && pr1 == pr2
+matches (Castle l) (Castle r) = l == r
+matches _ _ = False
+
+data MoveAndAppendation = MoveAndAppendation NotatedMove (Maybe CheckType) deriving (Eq)
+
+instance Show MoveAndAppendation where
+  show = printMove

@@ -1,18 +1,13 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE PatternSynonyms #-}
 
-module Chess.Data (NotatedMoveValues (..), NotatedMove, Square, Board, ChessMove (..), Game (..), CastleSide (..), Player (..), CastleLocation, PieceType (..), Rank (..), File (..), MoveType (..), CheckType (..), MoveAndAppendation (..), Piece, NonAttackingMove, AttackingMove, CheckStatus (..), ranks, files, pieces, allCastles, fromAttackingMove, fromNonAttackingMove, castleSides, fromPieces, checkType, pieceLocations, pieceTypes, notatedMove, CommonMove, Movement (..), pattern RegularMovement, attackingMove, nonAttackingMove, movePiece, filesFrom, ranksFrom, EnPassantMove, fromEnPassantMove, MoveData (..), majorPieces) where
+module Chess.Data (NotatedMoveValues (..), NotatedMove, Square, Board, ChessMove (..), Game (..), CastleSide (..), Player (..), CastleLocation, PieceType (..), Rank (..), File (..), MoveType (..), CheckType (..), Piece, NonAttackingMove, AttackingMove, CheckStatus (..), ranks, files, pieces, allCastles, fromAttackingMove, fromNonAttackingMove, castleSides, fromPieces, checkType, pieceLocations, pieceTypes, notatedMove, CommonMove, Movement (..), attackingMove, nonAttackingMove, filesFrom, ranksFrom, EnPassantMove, fromEnPassantMove, majorPieces) where
 
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 
 type Board = Map Square Piece
-
-forPlayer :: a -> a -> Player -> a
-forPlayer white black player = case player of
-  White -> white
-  Black -> black
 
 pieceLocations :: Player -> Board -> [(Square, PieceType)]
 pieceLocations player board = [(square, pieceType) | (square, (player', pieceType)) <- Map.toList board, player == player']
@@ -134,19 +129,14 @@ data Player
   | Black
   deriving (Show, Eq, Ord)
 
-data ChessMove a = RegularMove a | Castle CastleSide deriving (Show, Eq)
+data ChessMove a = RegularMove {move :: a, promotion :: Maybe PieceType} | Castle CastleSide deriving (Show, Eq)
 
 type CommonMove = Movement (PieceType, Square) (Maybe PieceType, Square)
-
-data MoveData = MoveData {move :: CommonMove, promotion :: Maybe PieceType}
 
 data Movement a b = Movement {from :: a, to :: b} deriving (Eq, Show)
 
 fromAttackingMove :: AttackingMove -> CommonMove
 fromAttackingMove (Movement from (piece, to)) = Movement from (Just piece, to)
-
-movePiece :: (a, b) -> a
-movePiece = fst
 
 fromNonAttackingMove :: NonAttackingMove -> CommonMove
 fromNonAttackingMove (Movement from to) = Movement from (Nothing, to)
@@ -169,11 +159,9 @@ type NonAttackingMove = Movement (PieceType, Square) Square
 type NotatedMove = ChessMove NotatedMoveValues
 
 notatedMove :: PieceType -> (Maybe File, Maybe Rank) -> MoveType -> Square -> NotatedMove
-notatedMove notatedMovePiece notatedFrom moveType notatedToSquare = RegularMove $ NotatedMoveValues {notatedMovePiece, notatedFrom, moveType, notatedToSquare, notatedPromotion = Nothing}
+notatedMove notatedMovePiece notatedFrom moveType notatedToSquare = RegularMove {move = NotatedMoveValues {notatedMovePiece, notatedFrom, moveType, notatedToSquare}, promotion = Nothing}
 
-data NotatedMoveValues = NotatedMoveValues {notatedMovePiece :: PieceType, notatedFrom :: (Maybe File, Maybe Rank), moveType :: MoveType, notatedToSquare :: Square, notatedPromotion :: Maybe PieceType} deriving (Eq)
-
-data MoveAndAppendation = MoveAndAppendation NotatedMove (Maybe CheckType) deriving (Eq)
+data NotatedMoveValues = NotatedMoveValues {notatedMovePiece :: PieceType, notatedFrom :: (Maybe File, Maybe Rank), moveType :: MoveType, notatedToSquare :: Square} deriving (Eq)
 
 data CheckType = Check | Mate deriving (Eq, Show)
 
@@ -196,6 +184,3 @@ type CastleLocation = (Player, CastleSide)
 
 allCastles :: [(Player, CastleSide)]
 allCastles = (,) <$> [White, Black] <*> castleSides
-
-pattern RegularMovement :: (PieceType, Square) -> (Maybe PieceType, Square) -> Maybe PieceType -> ChessMove MoveData
-pattern RegularMovement a b c = RegularMove (MoveData (Movement a b) c)

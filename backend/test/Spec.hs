@@ -1,24 +1,31 @@
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
+
+module Main (main) where
 
 import Chess.Data
 import Chess.Game (gameCheckType, legalMoves, startingGame)
 import Chess.Notation as Notation
 import Chess.Notation.Parser as Parser
 import Control.Applicative (many)
-import Control.Monad (void)
-import Control.Monad.State (runStateT)
-import Data.Attoparsec.Text (IResult (..), endOfInput, parseOnly)
+import Data.Attoparsec.Text (endOfInput, parseOnly)
+import Data.Maybe (isJust)
 import qualified Data.Set as Set
 import Data.Text (Text, pack)
 import Data.Text.IO as T
 import Test.Tasty
 import Test.Tasty.HUnit
 
-readPgns :: IO [(String, Text)]
-readPgns = traverse readPgn ["Mamedyarov", "OneGame"]
+readPgnsWithCount :: IO [(String, Int, Text)]
+readPgnsWithCount =
+  traverse
+    readPgn
+    [ -- ("Mamedyarov", 5012),
+      ("OneGame", 1)
+    ]
   where
-    readPgn name = (name,) <$> T.readFile ("pgns/" <> name <> ".pgn")
+    readPgn (name, count) = (name,count,) <$> T.readFile ("pgns/" <> name <> ".pgn")
 
 -- import Test.Hspec
 -- import System.IO
@@ -35,19 +42,19 @@ readPgns = traverse readPgn ["Mamedyarov", "OneGame"]
 
 main :: IO ()
 main = do
-  pgns <- readPgns
+  pgns <- readPgnsWithCount
   defaultMain $
     testGroup
       "All Tests"
       [ testOneMove,
         testFullMoveParser,
         testMoveParser,
-        -- testMoveParser2,
-        -- testMoveTextParser
-        -- testFenParser,
-        -- testLegalMoves,
-        -- testShortGame,
-        testReadPgns pgns
+        testReadPgns pgns,
+        testMoveTextParser,
+        testFenParser,
+        testLegalMoves,
+        testShortGame,
+        testPlayPgns $ map (\(name, _, text) -> (name, text)) pgns
       ]
 
 testOneMove :: TestTree
@@ -73,7 +80,6 @@ testMoveTextParser = testCase "Movetext" $ actual @?= expected
     expectedResult = Just WinForWhite
 
 parseShouldSucceed ::
-  (Show a) =>
   Parser a ->
   Text ->
   a
@@ -115,25 +121,6 @@ testMoveParser = testGroup "test move" $ map moveTest moveCases
       where
         actual = parseShouldSucceed parseMoveWithAppendation $ pack string
 
-testMoveParser2 :: TestTree
-testMoveParser2 = testGroup "test move" $ map moveTest moveCases
-  where
-    moveCases =
-      [ ("d4", MoveAndAppendation (notatedMove Pawn (Nothing, Nothing) To (D, Four)) Nothing),
-        ("Nf6", MoveAndAppendation (notatedMove Knight (Nothing, Nothing) To (F, Six)) Nothing),
-        ("dxe5", MoveAndAppendation (notatedMove Pawn (Just D, Nothing) Takes (E, Five)) Nothing),
-        ("Rdf8", MoveAndAppendation (notatedMove Rook (Just D, Nothing) To (F, Eight)) Nothing),
-        ("R1a3", MoveAndAppendation (notatedMove Rook (Nothing, Just One) To (A, Three)) Nothing),
-        ("Qh4e1", MoveAndAppendation (notatedMove Queen (Just H, Just Four) To (E, One)) Nothing),
-        ("R1a3+", MoveAndAppendation (notatedMove Rook (Nothing, Just One) To (A, Three)) (Just Check)),
-        ("R1a3#", MoveAndAppendation (notatedMove Rook (Nothing, Just One) To (A, Three)) (Just Mate)),
-        ("Rxh1+", MoveAndAppendation (notatedMove Rook (Nothing, Nothing) Takes (H, One)) (Just Check)),
-        ("h4+", MoveAndAppendation (notatedMove Pawn (Nothing, Nothing) To (H, Four)) (Just Check))
-      ]
-    moveTest (string, expected) = testCase string $ actual @?= [(expected, [])]
-      where
-        actual = runStateT parseMoveWithAppendation' $ string
-
 testFenParser :: TestTree
 testFenParser = testGroup "fenParser" [testCase "openingBoard" $ actual @?= expected]
   where
@@ -154,9 +141,19 @@ testShortGame = testCase "shortGame" $ actual @?= expected
     shortGameMoves = concatMap flattenMove shortGameFullMoves
     shortGameFen = "rnbqkb1r/pppp1ppp/8/4P3/8/4n2P/PPPNPPP1/R1BQKBNR w KQkq - 1 5"
 
-testReadPgns :: [(String, Text)] -> TestTree
-testReadPgns = testGroup "readPgns" . map testReadPgnCase
+testReadPgns :: [(String, Int, Text)] -> TestTree
+testReadPgns = testGroup "read pgns" . map testReadPgnCase
   where
-    testReadPgnCase (name, fileText) = testCase name $ actual @?= ()
+    testReadPgnCase (name, count, fileText) = testCase name $ length actual @?= count
       where
-        actual = parseShouldSucceed (void $ Parser.lexeme $ many $ Parser.parsePgn) fileText
+        actual = parseShouldSucceed (Parser.lexeme $ many Parser.parsePgn) fileText
+
+testPlayPgns :: [(String, Text)] -> TestTree
+testPlayPgns = testGroup "play pgns" . map testPlayPgnCase
+  where
+    testPlayPgnCase (name, fileText) = testGroup name $ map testGame games
+      where
+        games = parseShouldSucceed (Parser.lexeme $ many Parser.parsePgn) fileText
+        testGame (PGN {tags, moveText = MoveText fullMoves _}) = testCase (show tags) $ isJust actual @?= True
+          where
+            actual = fromMoves (fullMoves >>= flattenMove) startingGame

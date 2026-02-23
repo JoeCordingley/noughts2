@@ -1,0 +1,22 @@
+All Tests
+  oneMove:        OK
+  fullMove:       OK
+  test move
+    d4:           OK
+    Nf6:          OK
+    dxe5:         OK
+    Rdf8:         OK
+    R1a3:         OK
+    Qh4e1:        OK
+    R1a3+:        OK
+    R1a3#:        OK
+  Movetext:       OK
+  fenParser
+    openingBoard: OK
+  legalMoves
+    openingBoard: OK
+  shortGame:      OK
+  readPgns
+    Mamedyarov:   OK (1.33s)
+
+All 15 tests passed (1.33s)

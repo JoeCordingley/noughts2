@@ -2,36 +2,17 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
-module Chess.Notation.Parser (Parser, fen, fullMove, parseMove, parseMoveText, parseMoveWithAppendation, parseMoveWithAppendation2, parseMoveWithAppendation3, parseMoveWithAppendation', parsePgn, lexeme, parseMoveString) where
+module Chess.Notation.Parser (Parser, fen, fullMove, parseMove, parseMoveText, parseMoveWithAppendation, parsePgn, lexeme, parseMoveString) where
 
 import Chess.Data hiding (move)
 import Chess.Lib (withInput)
 import Chess.Notation hiding (fen)
 import Control.Applicative (many, optional, some, (<|>))
-import Control.Monad.State (StateT (..), runStateT)
 import Data.Attoparsec.Text as Parser (Parser, char, choice, decimal, endOfLine, skipSpace, takeWhile, takeWhile1, try)
 import Data.Char (isLetter)
-import Data.List (intersperse, singleton)
-import Data.List.NonEmpty (NonEmpty (..))
-import qualified Data.Map as Map
+import Data.List (intersperse)
 import qualified Data.Set as Set
 import Data.Text (Text, unpack)
-import Data.Tuple (swap)
-import Data.Void (Void)
-import Debug.Trace (trace)
-
-type Stream = Text
-
-type Error = Void
-
-pieceTypeMap :: Map.Map Char PieceType
-pieceTypeMap = Map.fromList $ map swap pieceTypeChars
-
-fileMap :: Map.Map Char File
-fileMap = Map.fromList $ map swap fileChars
-
-rankMap :: Map.Map Char Rank
-rankMap = Map.fromList $ map swap rankChars
 
 parseMoveText :: Parser MoveText
 parseMoveText = MoveText <$> some (try fullMove) <*> result
@@ -55,61 +36,14 @@ parsePgn = PGN <$> lexeme (many (tagPair <* endOfLine)) <*> lexeme parseMoveText
 parseMoveWithAppendation :: Parser MoveAndAppendation
 parseMoveWithAppendation = MoveAndAppendation <$> parseMove <*> optional appendation
 
-parseMoveWithAppendation3 :: Parser MoveAndAppendation
-parseMoveWithAppendation3 = MoveAndAppendation <$> parseMove3 <*> optional appendation
-
-parseMoveWithAppendation2 :: Parser MoveAndAppendation
-parseMoveWithAppendation2 = undefined
-
--- parseMoveWithAppendation2 = do
---  moveString <- parseMoveString
---  case runStateT parseMoveWithAppendation' moveString of
---    [(move, [])] -> pure move
---    _ -> unexpected $ Label ('e' :| ':' : moveString)
-
-parseMoveWithAppendation' :: StateT String [] MoveAndAppendation
-parseMoveWithAppendation' = MoveAndAppendation <$> parseMove' <*> optional parseAppendation' <* eol'
-  where
-    parseMove' = (RegularMove <$> notated) <|> (Castle <$> parseCastle')
-    parseAppendation' = Check <$ char' '+' <|> Mate <$ char' '#'
-    notated = NotatedMoveValues <$> pieceType' <*> fuzzySquare <*> parseMoveType' <*> square' <*> optional parsePromotion'
-    fuzzySquare = (,) <$> optional file' <*> optional rank'
-    parseMoveType' = Takes <$ char' 'x' <|> pure To
-    square' = (,) <$> file' <*> rank'
-    parsePromotion' = char' '=' *> pieceType'
-    parseCastle' = Queenside <$ string' "O-O-O" <|> Kingside <$ string' "O-O"
-    pieceType' = mapping' pieceTypeMap <|> pure Pawn
-    file' = mapping' fileMap
-    rank' = mapping' rankMap
-    char' x = StateT f
-      where
-        f (a : s) | a == x = [(a, s)]
-        f _ = []
-    string' :: String -> StateT String [] String
-    string' = traverse char'
-    mapping' m' = StateT f
-      where
-        f (a : s) = maybe [] (singleton . (,s)) $ Map.lookup a m'
-        f [] = []
-    eol' = StateT f
-      where
-        f "" = [((), "")]
-        f _ = []
-
 parseMove :: Parser NotatedMove
-parseMove = (RegularMove <$> move) <|> (Castle <$> parseCastle)
+parseMove = (RegularMove <$> (disambiguated <|> simple) <*> optional parsePromotion) <|> Castle <$> parseCastle
   where
-    move = NotatedMoveValues <$> pieceType <*> fuzzySquare <*> parseMoveType <*> square <*> optional parsePromotion
-    fuzzySquare = (,) <$> optional file <*> optional rank
-
-parseMove3 :: Parser NotatedMove
-parseMove3 = (RegularMove <$> (try simple <|> disambiguated)) <|> Castle <$> parseCastle
-  where
-    disambiguated = NotatedMoveValues <$> pieceType <*> fuzzySquare <*> parseMoveType <*> square <*> optional parsePromotion
-    fuzzySquare = (,) <$> optional file <*> optional rank
-    simple = move' <$> pieceType <*> parseMoveType <*> square <*> optional parsePromotion
+    disambiguated = NotatedMoveValues <$> pieceType <*> fuzzySquare <*> parseMoveType <*> square
+    fuzzySquare = (,) <$> optional file <*> optional rankParser
+    simple = move' <$> pieceType <*> parseMoveType <*> square
       where
-        move' notatedMovePiece moveType notatedToSquare notatedPromotion = NotatedMoveValues {notatedMovePiece, notatedFrom = (Nothing, Nothing), moveType, notatedToSquare, notatedPromotion}
+        move' notatedMovePiece moveType notatedToSquare = NotatedMoveValues {notatedMovePiece, notatedFrom = (Nothing, Nothing), moveType, notatedToSquare}
 
 parseMoveString :: Parser String
 parseMoveString = unpack <$> takeWhile1 (`Set.member` moveChars)
@@ -129,7 +63,7 @@ parseMoveType :: Parser MoveType
 parseMoveType = Takes <$ "x" <|> pure To
 
 square :: Parser Square
-square = (,) <$> file <*> rank
+square = (,) <$> file <*> rankParser
 
 pieceType :: Parser PieceType
 pieceType = choice (map charMapping pieceTypeChars) <|> pure Pawn
@@ -143,8 +77,8 @@ lexeme p = p <* skipSpace
 file :: Parser File
 file = choice $ map charMapping fileChars
 
-rank :: Parser Rank
-rank = choice $ map charMapping rankChars
+rankParser :: Parser Rank
+rankParser = choice $ map charMapping rankChars
 
 charMapping :: (a, Char) -> Parser a
 charMapping (a, c) = a <$ char c
@@ -158,11 +92,11 @@ fen = Game <$> lexeme piecePlacement <*> lexeme activeColourParser <*> lexeme ca
     parseRank rank = parseRank' files
       where
         parseRank' [] = pure []
-        parseRank' (file : files) = do
+        parseRank' (file' : files') = do
           fenElement <- parseFenElement
           case fenElement of
-            FenPiece piece -> (((file, rank), piece) :) <$> parseRank' files
-            NumberOfSquares n -> parseRank' (drop (n - 1) files)
+            FenPiece piece -> (((file', rank), piece) :) <$> parseRank' files'
+            NumberOfSquares n -> parseRank' (drop (n - 1) files')
     activeColourParser = choice $ map (charMapping . withInput activeColourChar) [White, Black]
     castlingAvailability = Set.empty <$ char '-' <|> Set.fromList <$> some castleLocation
     castleLocation = choice $ map charMapping castleChars
@@ -170,11 +104,11 @@ fen = Game <$> lexeme piecePlacement <*> lexeme activeColourParser <*> lexeme ca
     halfMoveClock = decimal
     fullMoveNumber = decimal
 
-piece :: Parser Piece
-piece = choice $ map charMapping pieceChars
+pieceParser :: Parser Piece
+pieceParser = choice $ map charMapping pieceChars
 
 parseFenElement :: Parser FenElement
-parseFenElement = NumberOfSquares <$> decimal <|> FenPiece <$> piece
+parseFenElement = NumberOfSquares <$> decimal <|> FenPiece <$> pieceParser
 
 tagPair :: Parser (Text, Text)
 tagPair = bracketed $ (,) <$> (Parser.takeWhile isLetter <* skipSpace) <*> quoted (Parser.takeWhile (/= '\"'))
