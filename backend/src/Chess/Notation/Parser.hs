@@ -37,7 +37,7 @@ parseMoveWithAppendation :: Parser MoveAndAppendation
 parseMoveWithAppendation = MoveAndAppendation <$> parseMove <*> optional appendation
 
 parseMove :: Parser NotatedMove
-parseMove = (RegularMove <$> (disambiguated <|> simple) <*> optional parsePromotion) <|> Castle <$> parseCastle
+parseMove = (RegularMove <$> (MoveAndPromotion <$> (disambiguated <|> simple) <*> optional parsePromotion)) <|> Castle <$> parseCastle
   where
     disambiguated = NotatedMoveValues <$> pieceType <*> fuzzySquare <*> parseMoveType <*> square
     fuzzySquare = (,) <$> optional file <*> optional rankParser

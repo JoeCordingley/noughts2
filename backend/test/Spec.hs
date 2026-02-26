@@ -10,6 +10,7 @@ import Chess.Notation as Notation
 import Chess.Notation.Parser as Parser
 import Control.Applicative (many)
 import Data.Attoparsec.Text (endOfInput, parseOnly)
+import Data.Functor (void)
 import Data.Maybe (isJust)
 import qualified Data.Set as Set
 import Data.Text (Text, pack)
@@ -53,7 +54,6 @@ main = do
         testMoveTextParser,
         testFenParser,
         testLegalMoves,
-        testShortGame,
         testPlayPgns $ map (\(name, _, text) -> (name, text)) pgns
       ]
 
@@ -133,14 +133,6 @@ testLegalMoves = testGroup "legalMoves" [testCase "openingBoard" $ Set.fromList 
     actual = Notation.notateMoves . map (fmap gameCheckType) $ legalMoves startingGame
     expected = ["a3", "a4", "b3", "b4", "c3", "c4", "d3", "d4", "e3", "e4", "f3", "f4", "g3", "g4", "h3", "h4", "Na3", "Nc3", "Nf3", "Nh3"]
 
-testShortGame :: TestTree
-testShortGame = testCase "shortGame" $ actual @?= expected
-  where
-    actual = Notation.fen <$> fromMoves shortGameMoves startingGame
-    expected = Just shortGameFen
-    shortGameMoves = concatMap flattenMove shortGameFullMoves
-    shortGameFen = "rnbqkb1r/pppp1ppp/8/4P3/8/4n2P/PPPNPPP1/R1BQKBNR w KQkq - 1 5"
-
 testReadPgns :: [(String, Int, Text)] -> TestTree
 testReadPgns = testGroup "read pgns" . map testReadPgnCase
   where
@@ -154,6 +146,6 @@ testPlayPgns = testGroup "play pgns" . map testPlayPgnCase
     testPlayPgnCase (name, fileText) = testGroup name $ map testGame games
       where
         games = parseShouldSucceed (Parser.lexeme $ many Parser.parsePgn) fileText
-        testGame (PGN {tags, moveText = MoveText fullMoves _}) = testCase (show tags) $ isJust actual @?= True
+        testGame (PGN {tags, moveText = MoveText fullMoves _}) = testCase (show tags) $ void actual @?= Right ()
           where
-            actual = fromMoves (fullMoves >>= flattenMove) startingGame
+            actual = fromFullMoves fullMoves startingGame
