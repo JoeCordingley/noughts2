@@ -8,7 +8,7 @@ import Chess.Data
 import Control.Monad (guard, (<=<))
 import Data.List (singleton)
 import qualified Data.Map as Map
-import Data.Maybe (fromMaybe, isNothing, maybeToList)
+import Data.Maybe (fromMaybe, isJust, isNothing, maybeToList)
 import Data.Semigroup (First (..))
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -116,8 +116,8 @@ legalMoves (Game {gameBoard = board, playerToMove = player, castlesAvailable, ha
           White -> id
         removeCastles = foldr (.) id [Set.delete castle | castle <- invalidatedCastles player move]
         updateHalfMoveClock = case move of
-          RegularMove (MoveAndPromotion (CommonMove Pawn _ _ _) _) -> const 0
-          RegularMove (MoveAndPromotion (CommonMove _ _ _ (Just _)) _) -> const 0
+          RegularMove (MoveAndPromotion move _) | movingPiece move == Pawn -> const 0
+          RegularMove (MoveAndPromotion move _) | isJust $ capturedPiece move -> const 0
           _ -> (+ 1)
         enPassantSquare' = case move of
           RegularMove (MoveAndPromotion (CommonMove Pawn (fromFile, Two) (_, Four) _) _) -> Just (fromFile, Three)
