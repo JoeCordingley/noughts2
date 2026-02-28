@@ -39,7 +39,7 @@ notateAppendation Check = "+"
 notateAppendation Mate = "#"
 
 notatePromotion :: PieceType -> String
-notatePromotion pieceType = "=" <> [pieceTypeChar pieceType]
+notatePromotion pieceType' = "=" <> [pieceTypeChar pieceType']
 
 notateMoveType :: MoveType -> String
 notateMoveType Takes = "x"

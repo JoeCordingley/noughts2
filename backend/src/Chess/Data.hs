@@ -1,7 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE PatternSynonyms #-}
 
-module Chess.Data (NotatedMoveValues (..), NotatedMove, Square, Board, ChessMove (..), Game (..), CastleSide (..), Player (..), CastleLocation, PieceType (..), Rank (..), File (..), MoveType (..), CheckType (..), Piece, NonAttackingMove, AttackingMove, CheckStatus (..), ranks, files, pieces, allCastles, fromAttackingMove, fromNonAttackingMove, castleSides, fromPieces, checkType, pieceLocations, pieceTypes, notatedMove, CommonMove (..), Movement (..), attackingMove, nonAttackingMove, filesFrom, ranksFrom, EnPassantMove, fromEnPassantMove, majorPieces, piece, rank, square, file) where
+module Chess.Data (NotatedMoveValues (..), NotatedMove, Square, Board, ChessMove (..), Game (..), CastleSide (..), Player (..), CastleLocation, PieceType (..), Rank (..), File (..), MoveType (..), CheckType (..), Piece, NonAttackingMove, AttackingMove, CheckStatus (..), ranks, files, pieces, allCastles, fromAttackingMove, fromNonAttackingMove, castleSides, fromPieces, checkType, pieceLocations, pieceTypes, notatedMove, CommonMove (..), Movement (..), attackingMove, nonAttackingMove, filesFrom, ranksFrom, EnPassantMove, fromEnPassantMove, majorPieces, piece, rank, square, file, pawnRanks, allSquares, pawnSquares, pieceType) where
 
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -10,7 +9,7 @@ import Data.Set (Set)
 type Board = Map Square Piece
 
 pieceLocations :: Player -> Board -> [(Square, PieceType)]
-pieceLocations player board = [(square', pieceType) | (square', (player', pieceType)) <- Map.toList board, player == player']
+pieceLocations player board = [(square', pieceType') | (square', (player', pieceType')) <- Map.toList board, player == player']
 
 fromPieces :: [(Square, Piece)] -> Board
 fromPieces = Map.fromList
@@ -98,6 +97,9 @@ data Rank
 ranks :: [Rank]
 ranks = [One, Two, Three, Four, Five, Six, Seven, Eight]
 
+pawnRanks :: [Rank]
+pawnRanks = [Two, Three, Four, Five, Six, Seven]
+
 data PieceType
   = King
   | Rook
@@ -124,6 +126,9 @@ players = [White, Black]
 
 type Piece =
   (Player, PieceType)
+
+pieceType :: Piece -> PieceType
+pieceType = snd
 
 type Square = (File, Rank)
 
@@ -171,7 +176,7 @@ attackingMove :: PieceType -> Square -> PieceType -> Square -> AttackingMove
 attackingMove piece' from attacking at = Movement (piece', from) (attacking, at)
 
 nonAttackingMove :: PieceType -> Square -> Square -> NonAttackingMove
-nonAttackingMove piece' from to = Movement (piece', from) to
+nonAttackingMove piece' from = Movement (piece', from)
 
 type NonAttackingMove = Movement (PieceType, Square) Square
 
@@ -203,3 +208,9 @@ type CastleLocation = (Player, CastleSide)
 
 allCastles :: [(Player, CastleSide)]
 allCastles = (,) <$> [White, Black] <*> castleSides
+
+allSquares :: [Square]
+allSquares = (,) <$> files <*> ranks
+
+pawnSquares :: [Square]
+pawnSquares = (,) <$> files <*> pawnRanks

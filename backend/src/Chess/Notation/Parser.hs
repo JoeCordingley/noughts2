@@ -40,9 +40,9 @@ parseMove :: Parser NotatedMove
 parseMove = (RegularMove <$> (setPromotion <$> (disambiguated <|> simple) <*> optional parsePromotion)) <|> Castle <$> parseCastle
   where
     setPromotion move' p = move' {notatedPromotion = p}
-    disambiguated = NotatedMoveValues <$> pieceType <*> fuzzySquare <*> parseMoveType <*> parseSquare <*> pure Nothing
+    disambiguated = NotatedMoveValues <$> parsePieceType <*> fuzzySquare <*> parseMoveType <*> parseSquare <*> pure Nothing
     fuzzySquare = (,) <$> optional parseFile <*> optional parseRank
-    simple = move' <$> pieceType <*> parseMoveType <*> parseSquare
+    simple = move' <$> parsePieceType <*> parseMoveType <*> parseSquare
       where
         move' notatedMovePiece moveType notatedToSquare = NotatedMoveValues {notatedMovePiece, notatedFrom = (Nothing, Nothing), moveType, notatedToSquare, notatedPromotion = Nothing}
 
@@ -58,7 +58,7 @@ appendation :: Parser CheckType
 appendation = (Check <$ char '+') <|> (Mate <$ char '#')
 
 parsePromotion :: Parser PieceType
-parsePromotion = "=" *> pieceType
+parsePromotion = "=" *> parsePieceType
 
 parseMoveType :: Parser MoveType
 parseMoveType = Takes <$ "x" <|> pure To
@@ -66,8 +66,8 @@ parseMoveType = Takes <$ "x" <|> pure To
 parseSquare :: Parser Square
 parseSquare = (,) <$> parseFile <*> parseRank
 
-pieceType :: Parser PieceType
-pieceType = choice (map charMapping pieceTypeChars) <|> pure Pawn
+parsePieceType :: Parser PieceType
+parsePieceType = choice (map charMapping pieceTypeChars) <|> pure Pawn
 
 parseDots :: Parser Dots
 parseDots = lexeme (ThreeDots <$ "..." <|> OneDot <$ ".")

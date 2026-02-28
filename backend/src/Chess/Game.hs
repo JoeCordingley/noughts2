@@ -7,6 +7,7 @@ module Chess.Game (play, GetAction, Board, Result (..), Player (..), Square, Ran
 import Chess.Data
 import Control.Monad (guard, (<=<))
 import Data.List (singleton)
+import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe, isJust, isNothing, maybeToList)
 import Data.Semigroup (First (..))
@@ -36,14 +37,14 @@ play getAction = play' startingGame
 startingBoard :: Board
 startingBoard =
   fromPieces $
-    [ ((file', rank'), (player, pieceType))
+    [ ((file', rank'), (player, pieceType'))
       | (rank', player, row) <-
           [ (One, White, otherPieces),
             (Two, White, pawns),
             (Seven, Black, pawns),
             (Eight, Black, otherPieces)
           ],
-        (file', pieceType) <- files `zip` row
+        (file', pieceType') <- files `zip` row
     ]
   where
     pawns = replicate 8 Pawn
@@ -179,9 +180,9 @@ attackingMoves player board = do
   (fromSquare, movePiece) <- pieceLocations player board
   spaces <- linesOfAttack (player, movePiece) fromSquare
   maybeToList $ do
-    (toSquare, (player', pieceType)) <- firstJust (fmapSnd pieceAt) spaces
+    (toSquare, (player', pieceType')) <- firstJust (fmapSnd pieceAt) spaces
     guard $ player' == other player
-    return $ attackingMove movePiece fromSquare pieceType toSquare
+    return $ attackingMove movePiece fromSquare pieceType' toSquare
   where
     fmapSnd f a = (a,) <$> f a
     pieceAt space = Map.lookup space board
@@ -203,26 +204,38 @@ isUnderCheck player board = King `elem` piecesUnderAttack
   where
     piecesUnderAttack = [piece' | Movement _ (piece', _) <- attackingMoves (other player) board]
 
+linesOfMovementMap :: Map (Piece, Square) [[Square]]
+linesOfMovementMap = Map.fromList [((piece', square'), linesOfMovement' piece' square') | (piece', square') <- validPiecePlacements]
+  where
+    linesOfMovement' (player, pieceType') = case pieceType' of
+      Pawn -> singleton . pawnMoves player
+      Knight -> map singleton . knightMoves
+      Bishop -> bishopLines
+      Rook -> rookLines
+      King -> map singleton . kingMoves
+      Queen -> queenLines
+
 linesOfMovement :: Piece -> Square -> [[Square]]
-linesOfMovement (player, pieceType) = case pieceType of
-  Pawn -> singleton . pawnMoves player
-  Knight -> map singleton . knightMoves
-  Bishop -> bishopLines
-  Rook -> rookLines
-  King -> map singleton . kingMoves
-  Queen -> queenLines
+linesOfMovement = curry (linesOfMovementMap !)
 
 linesOfAttack :: Piece -> Square -> [[Square]]
 linesOfAttack (player, Pawn) = map singleton . pawnAttacks player
 linesOfAttack piece' = linesOfMovement piece'
 
+validPiecePlacements :: [(Piece, Square)]
+validPiecePlacements = [(piece', square') | piece' <- pieces, square' <- validPositions (pieceType piece')]
+
+validPositions :: PieceType -> [Square]
+validPositions Pawn = pawnSquares
+validPositions _ = allSquares
+
 pawnMoves :: Player -> Square -> [Square]
-pawnMoves = traverse . pawnRanks
+pawnMoves = traverse . rankDestinations
   where
-    pawnRanks White Two = [Three, Four]
-    pawnRanks White rank' = [succ rank']
-    pawnRanks Black Seven = [Six, Five]
-    pawnRanks Black rank' = [pred rank']
+    rankDestinations White Two = [Three, Four]
+    rankDestinations White rank' = [succ rank']
+    rankDestinations Black Seven = [Six, Five]
+    rankDestinations Black rank' = [pred rank']
 
 pawnAttacks :: Player -> Square -> [Square]
 pawnAttacks player = pawnAttacks'
@@ -235,7 +248,7 @@ pawnAttacks player = pawnAttacks'
       Black -> pred rank'
 
 knightMoves :: Square -> [Square]
-knightMoves space = filter (knightMove space) allSpaces
+knightMoves space = filter (knightMove space) allSquares
   where
     knightMove x y = distances' == (1, 2) || distances' == (2, 1)
       where
@@ -264,7 +277,7 @@ rookLines space = map (lineExtendingFrom space) orthogonalDirections
     orthogonalDirections = map (,EQ) [LT, GT] ++ map (EQ,) [LT, GT]
 
 kingMoves :: Square -> [Square]
-kingMoves space = filter (kingMove space) allSpaces
+kingMoves space = filter (kingMove space) allSquares
   where
     kingMove x y = uncurry max (distances x y) == 1
 
@@ -272,9 +285,6 @@ lineExtendingFrom :: Square -> (Ordering, Ordering) -> [Square]
 lineExtendingFrom (file', rank') (fileIncrement, rankIncrement) =
   filesFrom fileIncrement file'
     `zip` ranksFrom rankIncrement rank'
-
-allSpaces :: [Square]
-allSpaces = (,) <$> files <*> ranks
 
 other :: Player -> Player
 other White = Black
