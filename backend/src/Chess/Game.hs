@@ -94,10 +94,10 @@ applyMovementToBoard (Movement (piece, from) to) = Map.delete from . Map.insert 
 legalMoves :: Game -> [(ChessMove (MoveAndPromotion CommonMove), Game)]
 legalMoves (Game {gameBoard = board, playerToMove = player, castlesAvailable, halfMoveClock, fullMoveNumber, enPassantSquare}) = withInput advanceGame =<< regularMoves ++ castles'
   where
-    regularMoves = [RegularMove (MoveAndPromotion move promotion) | move <- attackingMoves' ++ simpleMoves' ++ enPassantMoves', promotion <- promotions $ to move]
-    promotions (_, (_, rank))
+    regularMoves = [RegularMove (MoveAndPromotion move promotion) | move <- attackingMoves' ++ simpleMoves' ++ enPassantMoves', promotion <- promotions (from move) $ to move]
+    promotions (Pawn, _) (_, (_, rank))
       | rank == promotionRank = map Just majorPieces
-      | otherwise = [Nothing]
+    promotions _ _ = [Nothing]
     promotionRank = case player of
       White -> Eight
       Black -> One

@@ -6,10 +6,12 @@ module Main (main) where
 
 import Chess.Data
 import Chess.Game (gameCheckType, legalMoves, startingGame)
+import Chess.Notation (legalMovesNotated)
 import Chess.Notation as Notation
 import Chess.Notation.Parser as Parser
 import Control.Applicative (many)
 import Data.Attoparsec.Text (endOfInput, parseOnly)
+import Data.Bool (bool)
 import Data.Functor (void)
 import Data.Maybe (isJust)
 import qualified Data.Set as Set
@@ -43,6 +45,7 @@ readPgnsWithCount =
 
 main :: IO ()
 main = do
+  oneGameDebug <- T.readFile ("pgns/OneGameDebug.pgn")
   pgns <- readPgnsWithCount
   defaultMain $
     testGroup
@@ -54,7 +57,9 @@ main = do
         testMoveTextParser,
         testFenParser,
         testLegalMoves,
-        testPlayPgns $ map (\(name, _, text) -> (name, text)) pgns
+        testPlayPgns $ map (\(name, _, text) -> (name, text)) pgns,
+        testOneGameDebug oneGameDebug,
+        testAvailableMovesDebug
       ]
 
 testOneMove :: TestTree
@@ -130,7 +135,7 @@ testFenParser = testGroup "fenParser" [testCase "openingBoard" $ actual @?= expe
 testLegalMoves :: TestTree
 testLegalMoves = testGroup "legalMoves" [testCase "openingBoard" $ Set.fromList actual @?= Set.fromList expected]
   where
-    actual = Notation.notateMoves . map (fmap gameCheckType) $ legalMoves startingGame
+    actual = legalMovesNotated startingGame
     expected = ["a3", "a4", "b3", "b4", "c3", "c4", "d3", "d4", "e3", "e4", "f3", "f4", "g3", "g4", "h3", "h4", "Na3", "Nc3", "Nf3", "Nh3"]
 
 testReadPgns :: [(String, Int, Text)] -> TestTree
@@ -149,3 +154,20 @@ testPlayPgns = testGroup "play pgns" . map testPlayPgnCase
         testGame (PGN {tags, moveText = MoveText fullMoves _}) = testCase (show tags) $ void actual @?= Right ()
           where
             actual = fromFullMoves fullMoves startingGame
+
+testOneGameDebug :: Text -> TestTree
+testOneGameDebug filetext = testCase "one game debug" $ actual @?= Right debugFen
+  where
+    actual = fmap Notation.fen $ fromFullMoves fullMoves' startingGame
+    fullMoves' = fullMoves $ moveText $ parseShouldSucceed (Parser.lexeme Parser.parsePgn) filetext
+
+debugFen :: String
+debugFen = "r2qrnk1/5pbp/bpp2np1/3p4/PP1Pp3/1B2P2P/3N1PPB/R2QNRK1 b - - 3 17"
+
+testAvailableMovesDebug :: TestTree
+testAvailableMovesDebug = testCase "available moves debug" $ actual @?= Right True
+  where
+    actual = bool (Left availableMoves) (Right True) $ elem "Bxf1" $ availableMoves
+      where
+        availableMoves = legalMovesNotated game
+        game = parseShouldSucceed (Parser.fen) (pack debugFen)

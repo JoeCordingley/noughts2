@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
-module Chess.Notation (FullMove (..), fen, Result (..), MoveText (..), flattenMove, NotatedMove, fileChar, rankChar, rankChars, fileChars, pieceTypeChar, pieceTypeChars, pieceChars, FenElement (..), castleChar, castleChars, activeColourChar, notateMoves, fromMoves, PGN (..), printMove, MoveAndAppendation (..), fromFullMoves) where
+module Chess.Notation (FullMove (..), fen, Result (..), MoveText (..), flattenMove, NotatedMove, fileChar, rankChar, rankChars, fileChars, pieceTypeChar, pieceTypeChars, pieceChars, FenElement (..), castleChar, castleChars, activeColourChar, notateMoves, fromMoves, PGN (..), printMove, MoveAndAppendation (..), fromFullMoves, legalMovesNotated) where
 
 import Chess.Data
 import Chess.Game (gameCheckType, legalMoves)
@@ -62,7 +62,7 @@ data FullMove = FullMove
   }
   deriving (Eq, Show)
 
-data MoveText = MoveText [FullMove] (Maybe Result) deriving (Eq, Show)
+data MoveText = MoveText {fullMoves :: [FullMove], result :: Maybe Result} deriving (Eq, Show)
 
 data Result = WinForWhite | WinForBlack | Draw deriving (Eq, Show)
 
@@ -174,6 +174,9 @@ notateMoves = runWriterReader . traverse (fmap (show . uncurry MoveAndAppendatio
             fileDuplicated = getCount files' (piece, fromFile) > 1
             rankDuplicated = getCount ranks' (piece, fromRank) > 1
     notateMove (Castle side) = pure $ Castle side
+
+legalMovesNotated :: Game -> [String]
+legalMovesNotated = notateMoves . map (fmap gameCheckType) . legalMoves
 
 notateMoveValues :: Movement (PieceType, (Maybe File, Maybe Rank)) (Maybe PieceType, Square) -> NotatedMoveValues
 notateMoveValues (Movement (piece, from) (attacking, toSquare)) = NotatedMoveValues {notatedMovePiece = piece, notatedFrom = from, moveType, notatedToSquare = toSquare}

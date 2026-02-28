@@ -15,10 +15,10 @@ import qualified Data.Set as Set
 import Data.Text (Text, unpack)
 
 parseMoveText :: Parser MoveText
-parseMoveText = MoveText <$> some (try fullMove) <*> result
+parseMoveText = MoveText <$> some (try fullMove) <*> parseResult
 
-result :: Parser (Maybe Result)
-result = Just WinForWhite <$ "1-0" <|> Just WinForBlack <$ "0-1" <|> Just Draw <$ "1/2-1/2" <|> Nothing <$ "*"
+parseResult :: Parser (Maybe Result)
+parseResult = Just WinForWhite <$ "1-0" <|> Just WinForBlack <$ "0-1" <|> Just Draw <$ "1/2-1/2" <|> Nothing <$ "*"
 
 fullMove :: Parser FullMove
 fullMove = do
