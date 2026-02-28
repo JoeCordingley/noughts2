@@ -39,9 +39,9 @@ parseMoveWithAppendation = MoveAndAppendation <$> parseMove <*> optional appenda
 parseMove :: Parser NotatedMove
 parseMove = (RegularMove <$> (MoveAndPromotion <$> (disambiguated <|> simple) <*> optional parsePromotion)) <|> Castle <$> parseCastle
   where
-    disambiguated = NotatedMoveValues <$> pieceType <*> fuzzySquare <*> parseMoveType <*> square
+    disambiguated = NotatedMoveValues <$> pieceType <*> fuzzySquare <*> parseMoveType <*> parseSquare
     fuzzySquare = (,) <$> optional file <*> optional rankParser
-    simple = move' <$> pieceType <*> parseMoveType <*> square
+    simple = move' <$> pieceType <*> parseMoveType <*> parseSquare
       where
         move' notatedMovePiece moveType notatedToSquare = NotatedMoveValues {notatedMovePiece, notatedFrom = (Nothing, Nothing), moveType, notatedToSquare}
 
@@ -62,8 +62,8 @@ parsePromotion = "=" *> pieceType
 parseMoveType :: Parser MoveType
 parseMoveType = Takes <$ "x" <|> pure To
 
-square :: Parser Square
-square = (,) <$> file <*> rankParser
+parseSquare :: Parser Square
+parseSquare = (,) <$> file <*> rankParser
 
 pieceType :: Parser PieceType
 pieceType = choice (map charMapping pieceTypeChars) <|> pure Pawn
@@ -100,7 +100,7 @@ fen = Game <$> lexeme piecePlacement <*> lexeme activeColourParser <*> lexeme ca
     activeColourParser = choice $ map (charMapping . withInput activeColourChar) [White, Black]
     castlingAvailability = Set.empty <$ char '-' <|> Set.fromList <$> some castleLocation
     castleLocation = choice $ map charMapping castleChars
-    enPassantTargetSquare = Nothing <$ char '-' <|> Just <$> square
+    enPassantTargetSquare = Nothing <$ char '-' <|> Just <$> parseSquare
     halfMoveClock = decimal
     fullMoveNumber = decimal
 

@@ -1,7 +1,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE PatternSynonyms #-}
 
-module Chess.Data (NotatedMoveValues (..), MoveAndPromotion (..), NotatedMove, Square, Board, ChessMove (..), Game (..), CastleSide (..), Player (..), CastleLocation, PieceType (..), Rank (..), File (..), MoveType (..), CheckType (..), Piece, NonAttackingMove, AttackingMove, CheckStatus (..), ranks, files, pieces, allCastles, fromAttackingMove, fromNonAttackingMove, castleSides, fromPieces, checkType, pieceLocations, pieceTypes, notatedMove, CommonMove, Movement (..), attackingMove, nonAttackingMove, filesFrom, ranksFrom, EnPassantMove, fromEnPassantMove, majorPieces) where
+module Chess.Data (NotatedMoveValues (..), MoveAndPromotion (..), NotatedMove, Square, Board, ChessMove (..), Game (..), CastleSide (..), Player (..), CastleLocation, PieceType (..), Rank (..), File (..), MoveType (..), CheckType (..), Piece, NonAttackingMove, AttackingMove, CheckStatus (..), ranks, files, pieces, allCastles, fromAttackingMove, fromNonAttackingMove, castleSides, fromPieces, checkType, pieceLocations, pieceTypes, notatedMove, CommonMove, Movement (..), attackingMove, nonAttackingMove, filesFrom, ranksFrom, EnPassantMove, fromEnPassantMove, majorPieces, piece, rank, square) where
 
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -123,6 +123,15 @@ type Piece =
   (Player, PieceType)
 
 type Square = (File, Rank)
+
+piece :: (PieceType, b) -> PieceType
+piece = fst
+
+rank :: Square -> Rank
+rank = snd
+
+square :: (a, Square) -> Square
+square = snd
 
 data Player
   = White

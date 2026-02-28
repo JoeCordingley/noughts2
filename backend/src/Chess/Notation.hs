@@ -136,11 +136,11 @@ instance Show FenElement where
   show (FenPiece piece) = [pieceChar piece]
 
 fen :: Game -> String
-fen (Game {playerToMove, gameBoard, castlesAvailable, enPassantSquare, halfMoveClock, fullMoveNumber}) = unwords [piecePlacement gameBoard, singleton (activeColourChar playerToMove), castlingAvailability castlesAvailable, square enPassantSquare, show halfMoveClock, show fullMoveNumber]
+fen (Game {playerToMove, gameBoard, castlesAvailable, enPassantSquare, halfMoveClock, fullMoveNumber}) = unwords [piecePlacement gameBoard, singleton (activeColourChar playerToMove), castlingAvailability castlesAvailable, notateSquare enPassantSquare, show halfMoveClock, show fullMoveNumber]
 
-square :: Maybe Square -> String
-square Nothing = "-"
-square (Just (file, rank)) = [fileChar file, rankChar rank]
+notateSquare :: Maybe Square -> String
+notateSquare Nothing = "-"
+notateSquare (Just (file, rank)) = [fileChar file, rankChar rank]
 
 piecePlacement :: Board -> String
 piecePlacement board = intercalate "/" $ map rankPlacement (reverse ranks)
