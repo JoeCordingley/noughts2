@@ -73,13 +73,13 @@ gameCheckType = checkType <=< checkBoardStatus
 type PlayMove f = Game -> f (Status, Game)
 
 applyMoveToBoard :: Player -> ChessMove (MoveAndPromotion CommonMove) -> Maybe Square -> Board -> Board
-applyMoveToBoard player (RegularMove (MoveAndPromotion (Movement (Pawn, fromSquare) (_, toSquare)) _)) (Just enPassantSquare) | toSquare == enPassantSquare = Map.delete fromSquare . Map.delete passedPawnSquare . Map.insert toSquare (player, Pawn)
+applyMoveToBoard player (RegularMove (MoveAndPromotion (CommonMove Pawn fromSquare toSquare _) _)) (Just enPassantSquare) | toSquare == enPassantSquare = Map.delete fromSquare . Map.delete passedPawnSquare . Map.insert toSquare (player, Pawn)
   where
     passedPawnSquare = case player of
       White -> (file, Five)
       Black -> (file, Four)
     (file, _) = toSquare
-applyMoveToBoard player (RegularMove (MoveAndPromotion (Movement (piece, fromSquare) (_, toSquare)) promotion)) _ = applyMovementToBoard $ Movement ((player, fromMaybe piece promotion), fromSquare) toSquare
+applyMoveToBoard player (RegularMove (MoveAndPromotion (CommonMove piece fromSquare toSquare _) promotion)) _ = applyMovementToBoard $ Movement ((player, fromMaybe piece promotion), fromSquare) toSquare
 applyMoveToBoard player (Castle side) _ = case side of
   Queenside -> applyMovementToBoard (Movement ((player, King), (E, homeRow)) (C, homeRow)) . applyMovementToBoard (Movement ((player, Rook), (A, homeRow)) (D, homeRow))
   Kingside -> applyMovementToBoard (Movement ((player, King), (E, homeRow)) (G, homeRow)) . applyMovementToBoard (Movement ((player, Rook), (H, homeRow)) (F, homeRow))
@@ -94,7 +94,7 @@ applyMovementToBoard (Movement (piece, from) to) = Map.delete from . Map.insert 
 legalMoves :: Game -> [(ChessMove (MoveAndPromotion CommonMove), Game)]
 legalMoves (Game {gameBoard = board, playerToMove = player, castlesAvailable, halfMoveClock, fullMoveNumber, enPassantSquare}) = withInput advanceGame =<< regularMoves ++ castles'
   where
-    regularMoves = [RegularMove (MoveAndPromotion move promotion) | move <- attackingMoves' ++ simpleMoves' ++ enPassantMoves', promotion <- promotions (piece $ from move) (rank . square $ to move)]
+    regularMoves = [RegularMove (MoveAndPromotion move promotion) | move <- attackingMoves' ++ simpleMoves' ++ enPassantMoves', promotion <- promotions (movingPiece move) (rank . fromSquare $ move)]
     promotions Pawn rank
       | rank == promotionRank = map Just majorPieces
     promotions _ _ = [Nothing]
@@ -116,12 +116,12 @@ legalMoves (Game {gameBoard = board, playerToMove = player, castlesAvailable, ha
           White -> id
         removeCastles = foldr (.) id [Set.delete castle | castle <- invalidatedCastles player move]
         updateHalfMoveClock = case move of
-          RegularMove (MoveAndPromotion (Movement (Pawn, _) _) _) -> const 0
-          RegularMove (MoveAndPromotion (Movement _ (Just _, _)) _) -> const 0
+          RegularMove (MoveAndPromotion (CommonMove Pawn _ _ _) _) -> const 0
+          RegularMove (MoveAndPromotion (CommonMove _ _ _ (Just _)) _) -> const 0
           _ -> (+ 1)
         enPassantSquare' = case move of
-          RegularMove (MoveAndPromotion (Movement (Pawn, (fromFile, Two)) (_, (_, Four))) _) -> Just (fromFile, Three)
-          RegularMove (MoveAndPromotion (Movement (Pawn, (fromFile, Seven)) (_, (_, Five))) _) -> Just (fromFile, Six)
+          RegularMove (MoveAndPromotion (CommonMove Pawn (fromFile, Two) (_, Four) _) _) -> Just (fromFile, Three)
+          RegularMove (MoveAndPromotion (CommonMove Pawn (fromFile, Seven) (_, Five) _) _) -> Just (fromFile, Six)
           _ -> Nothing
 
 castles :: Player -> Board -> Set CastleLocation -> [CastleSide]
@@ -149,7 +149,7 @@ inCastlingPosition (player, castle) board = all empty interveningSquares && all 
 
 invalidatedCastles :: Player -> ChessMove (MoveAndPromotion CommonMove) -> [CastleLocation]
 invalidatedCastles player (Castle _) = (player,) <$> castleSides
-invalidatedCastles _ (RegularMove (MoveAndPromotion (Movement (piece, from) (taking, to)) _)) = castlesFrom piece from <> castlesTo taking to
+invalidatedCastles _ (RegularMove (MoveAndPromotion (CommonMove piece from to taking) _)) = castlesFrom piece from <> castlesTo taking to
   where
     castlesFrom Rook (A, One) = [(White, Queenside)]
     castlesFrom Rook (H, One) = [(White, Kingside)]

@@ -166,10 +166,10 @@ notateMoves :: [(ChessMove (MoveAndPromotion CommonMove), Maybe CheckType)] -> [
 notateMoves = runWriterReader . traverse (fmap (show . uncurry MoveAndAppendation) . traversefst notateMove)
   where
     notateMove :: ChessMove (MoveAndPromotion CommonMove) -> WriterReader (Counts (PieceType, File), Counts (PieceType, Rank)) (ChessMove (MoveAndPromotion NotatedMoveValues))
-    notateMove (RegularMove (MoveAndPromotion (Movement (piece, (fromFile, fromRank)) to) promotion)) = writerReader (regularNotatedMove . notateMoveValues . compress, (one (piece, fromFile), one (piece, fromRank)))
+    notateMove (RegularMove (MoveAndPromotion (CommonMove piece (fromFile, fromRank) toSquare capturedPiece) promotion)) = writerReader (regularNotatedMove . notateMoveValues . compress, (one (piece, fromFile), one (piece, fromRank)))
       where
         regularNotatedMove move = RegularMove (MoveAndPromotion move promotion)
-        compress (files', ranks') = Movement (piece, (fromFile <$ guard fileDuplicated, fromRank <$ guard rankDuplicated)) to
+        compress (files', ranks') = Movement (piece, (fromFile <$ guard fileDuplicated, fromRank <$ guard rankDuplicated)) (capturedPiece, toSquare)
           where
             fileDuplicated = getCount files' (piece, fromFile) > 1
             rankDuplicated = getCount ranks' (piece, fromRank) > 1
@@ -204,7 +204,7 @@ applyMoveAndAppendation (MoveAndAppendation notatedMove' appendation) game = do
     matchesCheckType game' = appendation == gameCheckType game'
 
 matches :: NotatedMove -> ChessMove (MoveAndPromotion CommonMove) -> Bool
-matches (RegularMove (MoveAndPromotion (NotatedMoveValues p1 (maybeOriginFile, maybeOriginRank) x1 d1) pr1)) (RegularMove (MoveAndPromotion (Movement (p2, (of2, or2)) (x2, d2)) pr2)) =
+matches (RegularMove (MoveAndPromotion (NotatedMoveValues p1 (maybeOriginFile, maybeOriginRank) x1 d1) pr1)) (RegularMove (MoveAndPromotion (CommonMove p2 (of2, or2) d2 x2) pr2)) =
   p1 == p2
     && ( case x1 of
            Takes -> isJust x2
