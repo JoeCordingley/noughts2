@@ -10,7 +10,7 @@ import Data.Set (Set)
 type Board = Map Square Piece
 
 pieceLocations :: Player -> Board -> [(Square, PieceType)]
-pieceLocations player board = [(square, pieceType) | (square, (player', pieceType)) <- Map.toList board, player == player']
+pieceLocations player board = [(square', pieceType) | (square', (player', pieceType)) <- Map.toList board, player == player']
 
 fromPieces :: [(Square, Piece)] -> Board
 fromPieces = Map.fromList
@@ -155,10 +155,10 @@ data CommonMove = CommonMove
 data Movement a b = Movement {from :: a, to :: b} deriving (Eq, Show)
 
 fromAttackingMove :: AttackingMove -> CommonMove
-fromAttackingMove (Movement (piece, from) (capture, to)) = CommonMove piece from to (Just capture) Nothing
+fromAttackingMove (Movement (piece', from) (capture, to)) = CommonMove piece' from to (Just capture) Nothing
 
 fromNonAttackingMove :: NonAttackingMove -> CommonMove
-fromNonAttackingMove (Movement (piece, from) to) = CommonMove piece from to Nothing Nothing
+fromNonAttackingMove (Movement (piece', from) to) = CommonMove piece' from to Nothing Nothing
 
 type AttackingMove = Movement (PieceType, Square) (PieceType, Square)
 
@@ -168,10 +168,10 @@ fromEnPassantMove :: EnPassantMove -> CommonMove
 fromEnPassantMove (Movement from to) = CommonMove Pawn from to (Just Pawn) Nothing
 
 attackingMove :: PieceType -> Square -> PieceType -> Square -> AttackingMove
-attackingMove piece from attacking at = Movement (piece, from) (attacking, at)
+attackingMove piece' from attacking at = Movement (piece', from) (attacking, at)
 
 nonAttackingMove :: PieceType -> Square -> Square -> NonAttackingMove
-nonAttackingMove piece from to = Movement (piece, from) to
+nonAttackingMove piece' from to = Movement (piece', from) to
 
 type NonAttackingMove = Movement (PieceType, Square) Square
 

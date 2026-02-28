@@ -5,15 +5,13 @@
 module Main (main) where
 
 import Chess.Data
-import Chess.Game (gameCheckType, legalMoves, startingGame)
-import Chess.Notation (legalMovesNotated)
+import Chess.Game (startingGame)
 import Chess.Notation as Notation
 import Chess.Notation.Parser as Parser
 import Control.Applicative (many)
 import Data.Attoparsec.Text (endOfInput, parseOnly)
 import Data.Bool (bool)
 import Data.Functor (void)
-import Data.Maybe (isJust)
 import qualified Data.Set as Set
 import Data.Text (Text, pack)
 import Data.Text.IO as T
@@ -24,7 +22,7 @@ readPgnsWithCount :: IO [(String, Int, Text)]
 readPgnsWithCount =
   traverse
     readPgn
-    [ -- ("Mamedyarov", 5012),
+    [ ("Mamedyarov", 4644),
       ("OneGame", 1)
     ]
   where

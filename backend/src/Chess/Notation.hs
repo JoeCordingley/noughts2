@@ -7,7 +7,7 @@ module Chess.Notation (FullMove (..), fen, Result (..), MoveText (..), flattenMo
 import Chess.Data
 import Chess.Game (gameCheckType, legalMoves)
 import Chess.Lib (Counts, getCount, guarded, one, singletonMaybe, traversefst, withInput)
-import Control.Monad (guard, (<=<), (>=>))
+import Control.Monad (guard, (>=>))
 import Control.Monad.Reader (Reader, reader, runReader)
 import Control.Monad.Writer (Writer, runWriter, writer)
 import Data.Char (toLower)
@@ -15,7 +15,7 @@ import Data.Foldable (Foldable (toList))
 import Data.Functor.Compose (Compose (..))
 import Data.List as List (intercalate, singleton)
 import qualified Data.Map as Map
-import Data.Maybe (fromMaybe, isJust, isNothing)
+import Data.Maybe (isJust, isNothing)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -49,11 +49,11 @@ notateRank :: Rank -> String
 notateRank = List.singleton . rankChar
 
 notateFile :: File -> String
-notateFile file = List.singleton $ fileChar file
+notateFile file' = List.singleton $ fileChar file'
 
 notatePiece :: PieceType -> String
 notatePiece Pawn = ""
-notatePiece piece = [pieceTypeChar piece]
+notatePiece piece' = [pieceTypeChar piece']
 
 data FullMove = FullMove
   { moveNumber :: Int,
@@ -67,7 +67,7 @@ data MoveText = MoveText {fullMoves :: [FullMove], result :: Maybe Result} deriv
 data Result = WinForWhite | WinForBlack | Draw deriving (Eq, Show)
 
 fileChar :: File -> Char
-fileChar file = case file of
+fileChar file' = case file' of
   A -> 'a'
   B -> 'b'
   C -> 'c'
@@ -81,7 +81,7 @@ fileChars :: [(File, Char)]
 fileChars = map (withInput fileChar) files
 
 rankChar :: Rank -> Char
-rankChar rank = case rank of
+rankChar rank' = case rank' of
   One -> '1'
   Two -> '2'
   Three -> '3'
@@ -95,7 +95,7 @@ rankChars :: [(Rank, Char)]
 rankChars = map (withInput rankChar) ranks
 
 pieceTypeChar :: PieceType -> Char
-pieceTypeChar piece = case piece of
+pieceTypeChar piece' = case piece' of
   Knight -> 'N'
   Rook -> 'R'
   Bishop -> 'B'
@@ -107,8 +107,8 @@ pieceTypeChars :: [(PieceType, Char)]
 pieceTypeChars = map (withInput pieceTypeChar) pieceTypes
 
 pieceChar :: Piece -> Char
-pieceChar (White, piece) = pieceTypeChar piece
-pieceChar (Black, piece) = toLower $ pieceTypeChar piece
+pieceChar (White, piece') = pieceTypeChar piece'
+pieceChar (Black, piece') = toLower $ pieceTypeChar piece'
 
 pieceChars :: [((Player, PieceType), Char)]
 pieceChars = map (withInput pieceChar) pieces
@@ -133,22 +133,22 @@ data FenElement = NumberOfSquares Int | FenPiece Piece
 
 instance Show FenElement where
   show (NumberOfSquares n) = show n
-  show (FenPiece piece) = [pieceChar piece]
+  show (FenPiece piece') = [pieceChar piece']
 
 fen :: Game -> String
 fen (Game {playerToMove, gameBoard, castlesAvailable, enPassantSquare, halfMoveClock, fullMoveNumber}) = unwords [piecePlacement gameBoard, singleton (activeColourChar playerToMove), castlingAvailability castlesAvailable, notateSquare enPassantSquare, show halfMoveClock, show fullMoveNumber]
 
 notateSquare :: Maybe Square -> String
 notateSquare Nothing = "-"
-notateSquare (Just (file, rank)) = [fileChar file, rankChar rank]
+notateSquare (Just (file', rank')) = [fileChar file', rankChar rank']
 
 piecePlacement :: Board -> String
 piecePlacement board = intercalate "/" $ map rankPlacement (reverse ranks)
   where
-    rankPlacement rank = concatMap show $ foldr f [] files
+    rankPlacement rank' = concatMap show $ foldr f [] files
       where
-        f file acc = case (Map.lookup (file, rank) board, acc) of
-          (Just piece, _) -> FenPiece piece : acc
+        f file' acc = case (Map.lookup (file', rank') board, acc) of
+          (Just piece', _) -> FenPiece piece' : acc
           (Nothing, NumberOfSquares n : rest) -> NumberOfSquares (n + 1) : rest
           (Nothing, _) -> NumberOfSquares 1 : acc
 
@@ -166,20 +166,20 @@ notateMoves :: [(ChessMove CommonMove, Maybe CheckType)] -> [String]
 notateMoves = runWriterReader . traverse (fmap (show . uncurry MoveAndAppendation) . traversefst notateMove)
   where
     notateMove :: ChessMove CommonMove -> WriterReader (Counts (PieceType, File), Counts (PieceType, Rank)) NotatedMove
-    notateMove (RegularMove (CommonMove piece (fromFile, fromRank) toSquare capturedPiece promotion)) = writerReader (regularNotatedMove . notateMoveValues . compress, (one (piece, fromFile), one (piece, fromRank)))
+    notateMove (RegularMove (CommonMove piece' (fromFile, fromRank) toSquare capturedPiece promotion)) = writerReader (regularNotatedMove . notateMoveValues . compress, (one (piece', fromFile), one (piece', fromRank)))
       where
         regularNotatedMove move = RegularMove (move {notatedPromotion = promotion})
-        compress (files', ranks') = Movement (piece, (fromFile <$ guard fileDuplicated, fromRank <$ guard rankDuplicated)) (capturedPiece, toSquare)
+        compress (files', ranks') = Movement (piece', (fromFile <$ guard fileDuplicated, fromRank <$ guard rankDuplicated)) (capturedPiece, toSquare)
           where
-            fileDuplicated = getCount files' (piece, fromFile) > 1
-            rankDuplicated = getCount ranks' (piece, fromRank) > 1
+            fileDuplicated = getCount files' (piece', fromFile) > 1
+            rankDuplicated = getCount ranks' (piece', fromRank) > 1
     notateMove (Castle side) = pure $ Castle side
 
 legalMovesNotated :: Game -> [String]
 legalMovesNotated = notateMoves . map (fmap gameCheckType) . legalMoves
 
 notateMoveValues :: Movement (PieceType, (Maybe File, Maybe Rank)) (Maybe PieceType, Square) -> NotatedMoveValues
-notateMoveValues (Movement (piece, from) (attacking, toSquare)) = NotatedMoveValues {notatedMovePiece = piece, notatedFrom = from, moveType, notatedToSquare = toSquare, notatedPromotion = Nothing}
+notateMoveValues (Movement (piece', from) (attacking, toSquare)) = NotatedMoveValues {notatedMovePiece = piece', notatedFrom = from, moveType, notatedToSquare = toSquare, notatedPromotion = Nothing}
   where
     moveType = case attacking of
       Just _ -> Takes

@@ -89,15 +89,15 @@ data Dots = OneDot | ThreeDots
 fen :: Parser Game
 fen = Game <$> lexeme piecePlacement <*> lexeme activeColourParser <*> lexeme castlingAvailability <*> lexeme enPassantTargetSquare <*> lexeme halfMoveClock <*> lexeme fullMoveNumber
   where
-    piecePlacement = fmap (fromPieces . concat) . sequence . intersperse ([] <$ char '/') . map parseRank $ reverse ranks
-    parseRank rank = parseRank' files
+    piecePlacement = fmap (fromPieces . concat) . sequence . intersperse ([] <$ char '/') . map parseRank' $ reverse ranks
+    parseRank' rank' = parseFiles files
       where
-        parseRank' [] = pure []
-        parseRank' (file' : files') = do
+        parseFiles [] = pure []
+        parseFiles (file' : files') = do
           fenElement <- parseFenElement
           case fenElement of
-            FenPiece piece -> (((file', rank), piece) :) <$> parseRank' files'
-            NumberOfSquares n -> parseRank' (drop (n - 1) files')
+            FenPiece piece' -> (((file', rank'), piece') :) <$> parseFiles files'
+            NumberOfSquares n -> parseFiles (drop (n - 1) files')
     activeColourParser = choice $ map (charMapping . withInput activeColourChar) [White, Black]
     castlingAvailability = Set.empty <$ char '-' <|> Set.fromList <$> some castleLocation
     castleLocation = choice $ map charMapping castleChars
