@@ -4,7 +4,7 @@
 
 module Chess.Notation.Parser (Parser, fen, fullMove, parseMove, parseMoveText, parseMoveWithAppendation, parsePgn, lexeme, parseMoveString) where
 
-import Chess.Data hiding (move)
+import Chess.Data
 import Chess.Lib (withInput)
 import Chess.Notation hiding (fen)
 import Control.Applicative (many, optional, some, (<|>))
@@ -37,13 +37,14 @@ parseMoveWithAppendation :: Parser MoveAndAppendation
 parseMoveWithAppendation = MoveAndAppendation <$> parseMove <*> optional appendation
 
 parseMove :: Parser NotatedMove
-parseMove = (RegularMove <$> (MoveAndPromotion <$> (disambiguated <|> simple) <*> optional parsePromotion)) <|> Castle <$> parseCastle
+parseMove = (RegularMove <$> (setPromotion <$> (disambiguated <|> simple) <*> optional parsePromotion)) <|> Castle <$> parseCastle
   where
-    disambiguated = NotatedMoveValues <$> pieceType <*> fuzzySquare <*> parseMoveType <*> parseSquare
+    setPromotion move' p = move' {notatedPromotion = p}
+    disambiguated = NotatedMoveValues <$> pieceType <*> fuzzySquare <*> parseMoveType <*> parseSquare <*> pure Nothing
     fuzzySquare = (,) <$> optional file <*> optional rankParser
     simple = move' <$> pieceType <*> parseMoveType <*> parseSquare
       where
-        move' notatedMovePiece moveType notatedToSquare = NotatedMoveValues {notatedMovePiece, notatedFrom = (Nothing, Nothing), moveType, notatedToSquare}
+        move' notatedMovePiece moveType notatedToSquare = NotatedMoveValues {notatedMovePiece, notatedFrom = (Nothing, Nothing), moveType, notatedToSquare, notatedPromotion = Nothing}
 
 parseMoveString :: Parser String
 parseMoveString = unpack <$> takeWhile1 (`Set.member` moveChars)
