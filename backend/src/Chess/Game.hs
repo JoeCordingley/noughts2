@@ -95,8 +95,7 @@ legalMoves :: Game -> [(ChessMove CommonMove, Game)]
 legalMoves (Game {gameBoard = board, playerToMove = player, castlesAvailable, halfMoveClock, fullMoveNumber, enPassantSquare}) = withInput advanceGame =<< regularMoves ++ castles'
   where
     regularMoves = [RegularMove (move {promotion}) | move <- attackingMoves' ++ simpleMoves' ++ enPassantMoves', promotion <- promotions (movingPiece move) (rank . fromSquare $ move)]
-    promotions Pawn rank
-      | rank == promotionRank = map Just majorPieces
+    promotions Pawn rank' | rank' == promotionRank = map Just majorPieces
     promotions _ _ = [Nothing]
     promotionRank = case player of
       White -> Eight
@@ -120,8 +119,13 @@ legalMoves (Game {gameBoard = board, playerToMove = player, castlesAvailable, ha
           RegularMove move' | isJust $ capturedPiece move' -> const 0
           _ -> (+ 1)
         enPassantSquare' = case move of
-          RegularMove (CommonMove Pawn (fromFile, Two) (_, Four) _ _) -> Just (fromFile, Three)
-          RegularMove (CommonMove Pawn (fromFile, Seven) (_, Five) _ _) -> Just (fromFile, Six)
+          RegularMove move'
+            | movingPiece move' == Pawn ->
+                let fromSquare' = fromSquare move'
+                 in case (rank fromSquare', rank $ toSquare move') of
+                      (Two, Four) -> Just (file fromSquare', Three)
+                      (Seven, Five) -> Just (file fromSquare', Six)
+                      _ -> Nothing
           _ -> Nothing
 
 castles :: Player -> Board -> Set CastleLocation -> [CastleSide]
@@ -216,19 +220,19 @@ pawnMoves :: Player -> Square -> [Square]
 pawnMoves = traverse . pawnRanks
   where
     pawnRanks White Two = [Three, Four]
-    pawnRanks White rank = [succ rank]
+    pawnRanks White rank' = [succ rank']
     pawnRanks Black Seven = [Six, Five]
-    pawnRanks Black rank = [pred rank]
+    pawnRanks Black rank' = [pred rank']
 
 pawnAttacks :: Player -> Square -> [Square]
 pawnAttacks player = pawnAttacks'
   where
-    pawnAttacks' (A, rank) = [(B, advanceOne rank)]
-    pawnAttacks' (H, rank) = [(G, advanceOne rank)]
-    pawnAttacks' (file, rank) = map (,advanceOne rank) [pred file, succ file]
-    advanceOne rank = case player of
-      White -> succ rank
-      Black -> pred rank
+    pawnAttacks' (A, rank') = [(B, advanceOne rank')]
+    pawnAttacks' (H, rank') = [(G, advanceOne rank')]
+    pawnAttacks' (file', rank') = map (,advanceOne rank') [pred file', succ file']
+    advanceOne rank' = case player of
+      White -> succ rank'
+      Black -> pred rank'
 
 knightMoves :: Square -> [Square]
 knightMoves space = filter (knightMove space) allSpaces

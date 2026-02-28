@@ -41,7 +41,7 @@ parseMove = (RegularMove <$> (setPromotion <$> (disambiguated <|> simple) <*> op
   where
     setPromotion move' p = move' {notatedPromotion = p}
     disambiguated = NotatedMoveValues <$> pieceType <*> fuzzySquare <*> parseMoveType <*> parseSquare <*> pure Nothing
-    fuzzySquare = (,) <$> optional file <*> optional rankParser
+    fuzzySquare = (,) <$> optional parseFile <*> optional parseRank
     simple = move' <$> pieceType <*> parseMoveType <*> parseSquare
       where
         move' notatedMovePiece moveType notatedToSquare = NotatedMoveValues {notatedMovePiece, notatedFrom = (Nothing, Nothing), moveType, notatedToSquare, notatedPromotion = Nothing}
@@ -64,7 +64,7 @@ parseMoveType :: Parser MoveType
 parseMoveType = Takes <$ "x" <|> pure To
 
 parseSquare :: Parser Square
-parseSquare = (,) <$> file <*> rankParser
+parseSquare = (,) <$> parseFile <*> parseRank
 
 pieceType :: Parser PieceType
 pieceType = choice (map charMapping pieceTypeChars) <|> pure Pawn
@@ -75,11 +75,11 @@ parseDots = lexeme (ThreeDots <$ "..." <|> OneDot <$ ".")
 lexeme :: Parser a -> Parser a
 lexeme p = p <* skipSpace
 
-file :: Parser File
-file = choice $ map charMapping fileChars
+parseFile :: Parser File
+parseFile = choice $ map charMapping fileChars
 
-rankParser :: Parser Rank
-rankParser = choice $ map charMapping rankChars
+parseRank :: Parser Rank
+parseRank = choice $ map charMapping rankChars
 
 charMapping :: (a, Char) -> Parser a
 charMapping (a, c) = a <$ char c

@@ -1,7 +1,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE PatternSynonyms #-}
 
-module Chess.Data (NotatedMoveValues (..), NotatedMove, Square, Board, ChessMove (..), Game (..), CastleSide (..), Player (..), CastleLocation, PieceType (..), Rank (..), File (..), MoveType (..), CheckType (..), Piece, NonAttackingMove, AttackingMove, CheckStatus (..), ranks, files, pieces, allCastles, fromAttackingMove, fromNonAttackingMove, castleSides, fromPieces, checkType, pieceLocations, pieceTypes, notatedMove, CommonMove (..), Movement (..), attackingMove, nonAttackingMove, filesFrom, ranksFrom, EnPassantMove, fromEnPassantMove, majorPieces, piece, rank, square) where
+module Chess.Data (NotatedMoveValues (..), NotatedMove, Square, Board, ChessMove (..), Game (..), CastleSide (..), Player (..), CastleLocation, PieceType (..), Rank (..), File (..), MoveType (..), CheckType (..), Piece, NonAttackingMove, AttackingMove, CheckStatus (..), ranks, files, pieces, allCastles, fromAttackingMove, fromNonAttackingMove, castleSides, fromPieces, checkType, pieceLocations, pieceTypes, notatedMove, CommonMove (..), Movement (..), attackingMove, nonAttackingMove, filesFrom, ranksFrom, EnPassantMove, fromEnPassantMove, majorPieces, piece, rank, square, file) where
 
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -107,6 +107,9 @@ data PieceType
   | Pawn
   deriving (Eq, Ord, Show)
 
+file :: Square -> File
+file = fst
+
 majorPieces :: [PieceType]
 majorPieces = [Rook, Knight, Bishop, Queen]
 
@@ -141,11 +144,11 @@ data Player
 data ChessMove a = RegularMove a | Castle CastleSide deriving (Show, Eq)
 
 data CommonMove = CommonMove
-  { movingPiece :: PieceType
-  , fromSquare :: Square
-  , toSquare :: Square
-  , capturedPiece :: Maybe PieceType
-  , promotion :: Maybe PieceType
+  { movingPiece :: PieceType,
+    fromSquare :: Square,
+    toSquare :: Square,
+    capturedPiece :: Maybe PieceType,
+    promotion :: Maybe PieceType
   }
   deriving (Eq, Show)
 
