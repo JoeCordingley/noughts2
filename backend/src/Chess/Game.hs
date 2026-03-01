@@ -10,7 +10,7 @@ import Control.Monad (guard, (<=<))
 import Data.List (singleton)
 import Data.Map ((!))
 import qualified Data.Map as Map
-import Data.Maybe (fromMaybe, isNothing, maybeToList)
+import Data.Maybe (fromJust, fromMaybe, isNothing, maybeToList)
 import Data.Set (Set)
 import qualified Data.Set as Set
 
@@ -36,7 +36,7 @@ play getAction = play' startingGame
 
 startingBoard :: Board
 startingBoard =
-  fromPieces $
+  fromJust . fromPieces $
     [ ((file', rank'), (player, pieceType'))
       | (rank', player, row) <-
           [ (One, White, otherPieces),
@@ -74,8 +74,9 @@ gameCheckType = checkType <=< checkBoardStatus
 type PlayMove f = Game -> f (Status, Game)
 
 applyMoveToBoard :: Player -> ChessMove MoveAndPromotion -> Maybe Square -> Board -> Board
-applyMoveToBoard player (RegularMove (MoveAndPromotion (CommonMove Pawn fromSquare toSquare _) _)) (Just enPassantSquare) board | toSquare == enPassantSquare =
-  board {pieceMap = Map.delete fromSquare . Map.delete passedPawnSquare . Map.insert toSquare (player, Pawn) $ pieceMap board}
+applyMoveToBoard player (RegularMove (MoveAndPromotion (CommonMove Pawn fromSquare toSquare _) _)) (Just enPassantSquare) board
+  | toSquare == enPassantSquare =
+      board {pieceMap = Map.delete fromSquare . Map.delete passedPawnSquare . Map.insert toSquare (player, Pawn) $ pieceMap board}
   where
     passedPawnSquare = case player of
       White -> (file', Five)

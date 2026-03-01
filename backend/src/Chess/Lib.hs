@@ -1,6 +1,6 @@
 {-# LANGUAGE TupleSections #-}
 
-module Chess.Lib (guarded, singletonMaybe, withInput, Counts, one, getCount, traversefst, foldrM, withInputF, takeWhileIncludingFirstFailure, firstJust) where
+module Chess.Lib (guarded, singletonMaybe, withInput, Counts, one, getCount, traversefst, foldrM, withInputF, takeWhileIncludingFirstFailure, firstJust, both) where
 
 import Control.Applicative (Alternative)
 import Control.Monad (guard, (>=>))
@@ -44,3 +44,6 @@ takeWhileIncludingFirstFailure p (a : as) = a : if p a then takeWhileIncludingFi
 
 firstJust :: (a -> Maybe b) -> [a] -> Maybe b
 firstJust f = fmap getFirst . foldMap (fmap First . f)
+
+both :: (t -> b) -> (t, t) -> (b, b)
+both f (x, y) = (f x, f y)

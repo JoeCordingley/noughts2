@@ -1,7 +1,9 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
-module Chess.Data (NotatedMoveValues (..), NotatedMove, Square, Board (..), ChessMove (..), Game (..), CastleSide (..), Player (..), CastleLocation, PieceType (..), Rank (..), File (..), MoveType (..), CheckType (..), Piece, NonAttackingMove, AttackingMove, CheckStatus (..), ranks, files, pieces, allCastles, fromAttackingMove, fromNonAttackingMove, castleSides, fromPieces, checkType, pieceLocations, pieceTypes, notatedMove, CommonMove (..), Movement (..), attackingMove, nonAttackingMove, filesFrom, ranksFrom, EnPassantMove, fromEnPassantMove, majorPieces, piece, rank, square, file, pawnRanks, allSquares, pawnSquares, pieceType, MoveAndPromotion (..), ChessMoveInternal) where
+module Chess.Data (NotatedMoveValues (..), NotatedMove, Square, Board (..), ChessMove (..), Game (..), CastleSide (..), Player (..), CastleLocation, PieceType (..), Rank (..), File (..), MoveType (..), CheckType (..), Piece, NonAttackingMove, AttackingMove, CheckStatus (..), ranks, files, pieces, allCastles, fromAttackingMove, fromNonAttackingMove, castleSides, fromPieces, checkType, pieceLocations, pieceTypes, notatedMove, CommonMove (..), Movement (..), attackingMove, nonAttackingMove, filesFrom, ranksFrom, EnPassantMove, fromEnPassantMove, majorPieces, piece, rank, square, file, pawnRanks, allSquares, pawnSquares, pieceType, MoveAndPromotion (..), ChessMoveInternal, gameFromPieces) where
 
+import Chess.Lib (both, singletonMaybe)
+import Control.Arrow (first, second)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
@@ -16,16 +18,28 @@ data Board = Board
 pieceLocations :: Player -> Board -> [(Square, PieceType)]
 pieceLocations player Board {pieceMap} = [(square', pieceType') | (square', (player', pieceType')) <- Map.toList pieceMap, player == player']
 
-fromPieces :: [(Square, Piece)] -> Board
-fromPieces pieces' =
-  Board
-    { pieceMap = m,
-      whiteKing = findKing' White,
-      blackKing = findKing' Black
-    }
+fromPieces :: [(Square, Piece)] -> Maybe Board
+fromPieces pieces' = board' <$> maybeWhiteKing <*> maybeBlackKing
   where
+    board' whiteKing blackKing =
+      Board
+        { pieceMap = m,
+          whiteKing,
+          blackKing
+        }
     m = Map.fromList pieces'
-    findKing' p = head [sq | (sq, (p', pt)) <- pieces', p == p', pt == King]
+    (maybeWhiteKing, maybeBlackKing) = both singletonMaybe $ foldr f ([], []) pieces'
+      where
+        f (square', (White, King)) = first (square' :)
+        f (square', (Black, King)) = second (square' :)
+        f _ = id
+
+data Game = Game {gameBoard :: Board, playerToMove :: Player, castlesAvailable :: Set CastleLocation, enPassantSquare :: Maybe Square, halfMoveClock :: Int, fullMoveNumber :: Int} deriving (Eq, Show)
+
+gameFromPieces :: [(Square, Piece)] -> Player -> Set CastleLocation -> Maybe Square -> Int -> Int -> Maybe Game
+gameFromPieces pieces' playerToMove castlesAvailable enPassantSquare halfMoveClock fullMoveNumber = fromGameBoard <$> fromPieces pieces'
+  where
+    fromGameBoard gameBoard = Game {gameBoard, playerToMove, castlesAvailable, enPassantSquare, halfMoveClock, fullMoveNumber}
 
 data File
   = A
@@ -212,8 +226,6 @@ checkType (CheckType c) = Just c
 checkType _ = Nothing
 
 data MoveType = Takes | To deriving (Eq, Show)
-
-data Game = Game {gameBoard :: Board, playerToMove :: Player, castlesAvailable :: Set CastleLocation, enPassantSquare :: Maybe Square, halfMoveClock :: Int, fullMoveNumber :: Int} deriving (Eq, Show)
 
 data CastleSide = Kingside | Queenside deriving (Eq, Ord, Show)
 

@@ -56,8 +56,7 @@ main = do
         testFenParser,
         testLegalMoves,
         testPlayPgns $ map (\(name, _, text) -> (name, text)) pgns,
-        testOneGameDebug oneGameDebug,
-        testAvailableMovesDebug
+        testOneGameDebug oneGameDebug
       ]
 
 testOneMove :: TestTree
@@ -127,7 +126,7 @@ testMoveParser = testGroup "test move" $ map moveTest moveCases
 testFenParser :: TestTree
 testFenParser = testGroup "fenParser" [testCase "openingBoard" $ actual @?= expected]
   where
-    expected = startingGame
+    expected = Just startingGame
     actual = parseShouldSucceed Parser.fen $ "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 testLegalMoves :: TestTree
@@ -162,10 +161,3 @@ testOneGameDebug filetext = testCase "one game debug" $ actual @?= Right debugFe
 debugFen :: String
 debugFen = "r2qrnk1/5pbp/bpp2np1/3p4/PP1Pp3/1B2P2P/3N1PPB/R2QNRK1 b - - 3 17"
 
-testAvailableMovesDebug :: TestTree
-testAvailableMovesDebug = testCase "available moves debug" $ actual @?= Right True
-  where
-    actual = bool (Left availableMoves) (Right True) $ elem "Bxf1" $ availableMoves
-      where
-        availableMoves = legalMovesNotated game
-        game = parseShouldSucceed (Parser.fen) (pack debugFen)

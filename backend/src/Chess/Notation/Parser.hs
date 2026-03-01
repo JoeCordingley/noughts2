@@ -10,6 +10,7 @@ import Chess.Notation hiding (fen)
 import Control.Applicative (many, optional, some, (<|>))
 import Data.Attoparsec.Text as Parser (Parser, char, choice, decimal, endOfLine, skipSpace, takeWhile, takeWhile1, try)
 import Data.Char (isLetter)
+import Data.Functor.Compose (Compose (..))
 import Data.List (intersperse)
 import qualified Data.Set as Set
 import Data.Text (Text, unpack)
@@ -86,10 +87,10 @@ charMapping (a, c) = a <$ char c
 
 data Dots = OneDot | ThreeDots
 
-fen :: Parser Game
-fen = Game <$> lexeme piecePlacement <*> lexeme activeColourParser <*> lexeme castlingAvailability <*> lexeme enPassantTargetSquare <*> lexeme halfMoveClock <*> lexeme fullMoveNumber
+fen :: Parser (Maybe Game)
+fen = gameFromPieces <$> lexeme piecePlacement <*> lexeme activeColourParser <*> lexeme castlingAvailability <*> lexeme enPassantTargetSquare <*> lexeme halfMoveClock <*> lexeme fullMoveNumber
   where
-    piecePlacement = fmap (fromPieces . concat) . sequence . intersperse ([] <$ char '/') . map parseRank' $ reverse ranks
+    piecePlacement = fmap concat . sequence . intersperse ([] <$ char '/') . map parseRank' $ reverse ranks
     parseRank' rank' = parseFiles files
       where
         parseFiles [] = pure []
