@@ -5,7 +5,7 @@
 module Chess.Game (play, GetAction, Board, Result (..), Player (..), Square, Rank (..), File (..), legalMoves, PieceType (..), ranks, files, startingBoard, Action (..), startingGame, attackingMoves, isUnderCheck, nonAttackingMoves, applyMoveToBoard, gameCheckType, firstJust) where
 
 import Chess.Data
-import Chess.Lib (firstJust, takeWhileIncludingFirstFailure, withInputF)
+import Chess.Lib (firstJust, withInputF)
 import Control.Monad (guard, (<=<))
 import Data.List (singleton)
 import Data.Map ((!))
@@ -140,9 +140,7 @@ inCastlingPosition (player, castle) board = all empty interveningSquares && all 
       White -> One
       Black -> Eight
     empty square' = isNothing $ Map.lookup square' board
-    notAttacked square' = not $ Set.member square' attackedSquares
-    attackedSquares = Set.fromList [square' | (fromSquare, movePiece) <- pieceLocations (other player) board, squares <- linesOfAttack (player, movePiece) fromSquare, square' <- takeWhileIncludingFirstFailure (isNothing . pieceAt) squares]
-    pieceAt square' = Map.lookup square' board
+    notAttacked sq = not $ isSquareAttackedBy (other player) sq board
     kingSquares =
       (,homeRow)
         <$> E : case castle of
@@ -193,9 +191,34 @@ enPassantMoves player board square' = do
   return $ Movement fromSquare toSquare
 
 isUnderCheck :: Player -> Board -> Bool
-isUnderCheck player board = King `elem` piecesUnderAttack
+isUnderCheck player board = maybe False (\sq -> isSquareAttackedBy (other player) sq board) (findKing player board)
+
+findKing :: Player -> Board -> Maybe Square
+findKing player board = Map.foldrWithKey (\sq (p, pt) acc -> if p == player && pt == King then Just sq else acc) Nothing board
+
+isSquareAttackedBy :: Player -> Square -> Board -> Bool
+isSquareAttackedBy attacker sq board =
+  any checkKnight knightSquares
+    || any checkPawn pawnAttackSquares
+    || any checkKing kingSquares
+    || any (checkSlider [Rook, Queen]) rookLines'
+    || any (checkSlider [Bishop, Queen]) bishopLines'
   where
-    piecesUnderAttack = [piece' | Movement _ (piece', _) <- attackingMoves (other player) board]
+    checkPiece pt pSq = Map.lookup pSq board == Just (attacker, pt)
+    checkKnight = checkPiece Knight
+    checkPawn = checkPiece Pawn
+    checkKing = checkPiece King
+    checkSlider pts line = case firstJust (\s -> (s,) <$> Map.lookup s board) line of
+      Just (_, (p, pt)) -> p == attacker && pt `elem` pts
+      Nothing -> False
+    knightSquares = concat $ linesOfMovement (attacker, Knight) sq
+    kingSquares = concat $ linesOfMovement (attacker, King) sq
+    pawnAttackSquares = case (attacker, rank sq) of
+      (White, One) -> []
+      (Black, Eight) -> []
+      _ -> pawnAttacks (other attacker) sq
+    rookLines' = linesOfMovement (attacker, Rook) sq
+    bishopLines' = linesOfMovement (attacker, Bishop) sq
 
 linesOfMovement :: Piece -> Square -> [[Square]]
 linesOfMovement = curry (linesOfMovementMap !)
