@@ -1,6 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
-module Chess.Data (NotatedMoveValues (..), NotatedMove, Square, Board, ChessMove (..), Game (..), CastleSide (..), Player (..), CastleLocation, PieceType (..), Rank (..), File (..), MoveType (..), CheckType (..), Piece, NonAttackingMove, AttackingMove, CheckStatus (..), ranks, files, pieces, allCastles, fromAttackingMove, fromNonAttackingMove, castleSides, fromPieces, checkType, pieceLocations, pieceTypes, notatedMove, CommonMove (..), Movement (..), attackingMove, nonAttackingMove, filesFrom, ranksFrom, EnPassantMove, fromEnPassantMove, majorPieces, piece, rank, square, file, pawnRanks, allSquares, pawnSquares, pieceType) where
+module Chess.Data (NotatedMoveValues (..), NotatedMove, Square, Board, ChessMove (..), Game (..), CastleSide (..), Player (..), CastleLocation, PieceType (..), Rank (..), File (..), MoveType (..), CheckType (..), Piece, NonAttackingMove, AttackingMove, CheckStatus (..), ranks, files, pieces, allCastles, fromAttackingMove, fromNonAttackingMove, castleSides, fromPieces, checkType, pieceLocations, pieceTypes, notatedMove, CommonMove (..), Movement (..), attackingMove, nonAttackingMove, filesFrom, ranksFrom, EnPassantMove, fromEnPassantMove, majorPieces, piece, rank, square, file, pawnRanks, allSquares, pawnSquares, pieceType, MoveAndPromotion (..), ChessMoveInternal) where
 
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -148,29 +148,32 @@ data Player
 
 data ChessMove a = RegularMove a | Castle CastleSide deriving (Show, Eq)
 
+type ChessMoveInternal = ChessMove MoveAndPromotion
+
+data MoveAndPromotion = MoveAndPromotion {move :: CommonMove, promotion :: Maybe PieceType}
+
 data CommonMove = CommonMove
   { movingPiece :: PieceType,
     fromSquare :: Square,
     toSquare :: Square,
-    capturedPiece :: Maybe PieceType,
-    promotion :: Maybe PieceType
+    capturedPiece :: Maybe PieceType
   }
   deriving (Eq, Show)
 
 data Movement a b = Movement {from :: a, to :: b} deriving (Eq, Show)
 
 fromAttackingMove :: AttackingMove -> CommonMove
-fromAttackingMove (Movement (piece', from) (capture, to)) = CommonMove piece' from to (Just capture) Nothing
+fromAttackingMove (Movement (piece', from) (capture, to)) = CommonMove piece' from to (Just capture)
 
 fromNonAttackingMove :: NonAttackingMove -> CommonMove
-fromNonAttackingMove (Movement (piece', from) to) = CommonMove piece' from to Nothing Nothing
+fromNonAttackingMove (Movement (piece', from) to) = CommonMove piece' from to Nothing
 
 type AttackingMove = Movement (PieceType, Square) (PieceType, Square)
 
 type EnPassantMove = Movement Square Square
 
 fromEnPassantMove :: EnPassantMove -> CommonMove
-fromEnPassantMove (Movement from to) = CommonMove Pawn from to (Just Pawn) Nothing
+fromEnPassantMove (Movement from to) = CommonMove Pawn from to (Just Pawn)
 
 attackingMove :: PieceType -> Square -> PieceType -> Square -> AttackingMove
 attackingMove piece' from attacking at = Movement (piece', from) (attacking, at)

@@ -6,7 +6,7 @@ module Chess.Notation (FullMove (..), fen, Result (..), MoveText (..), flattenMo
 
 import Chess.Data
 import Chess.Game (gameCheckType, legalMoves)
-import Chess.Lib (Counts, getCount, guarded, one, singletonMaybe, traversefst, withInput)
+import Chess.Lib (Counts, foldrM, getCount, guarded, one, singletonMaybe, traversefst, withInput)
 import Control.Monad (guard, (>=>))
 import Control.Monad.Reader (Reader, reader, runReader)
 import Control.Monad.Writer (Writer, runWriter, writer)
@@ -162,11 +162,11 @@ writerReader = Compose . writer . mapfst reader
 runWriterReader :: WriterReader w a -> a
 runWriterReader = uncurry runReader . runWriter . getCompose
 
-notateMoves :: [(ChessMove CommonMove, Maybe CheckType)] -> [String]
+notateMoves :: [(ChessMoveInternal, Maybe CheckType)] -> [String]
 notateMoves = runWriterReader . traverse (fmap (show . uncurry MoveAndAppendation) . traversefst notateMove)
   where
-    notateMove :: ChessMove CommonMove -> WriterReader (Counts (PieceType, File), Counts (PieceType, Rank)) NotatedMove
-    notateMove (RegularMove (CommonMove piece' (fromFile, fromRank) toSquare capturedPiece promotion)) = writerReader (regularNotatedMove . notateMoveValues . compress, (one (piece', fromFile), one (piece', fromRank)))
+    notateMove :: ChessMoveInternal -> WriterReader (Counts (PieceType, File), Counts (PieceType, Rank)) NotatedMove
+    notateMove (RegularMove (MoveAndPromotion (CommonMove piece' (fromFile, fromRank) toSquare capturedPiece) promotion)) = writerReader (regularNotatedMove . notateMoveValues . compress, (one (piece', fromFile), one (piece', fromRank)))
       where
         regularNotatedMove move = RegularMove (move {notatedPromotion = promotion})
         compress (files', ranks') = Movement (piece', (fromFile <$ guard fileDuplicated, fromRank <$ guard rankDuplicated)) (capturedPiece, toSquare)
@@ -188,14 +188,14 @@ notateMoveValues (Movement (piece', from) (attacking, toSquare)) = NotatedMoveVa
 data FullMoveError = FullMoveError {failingMoveNumber :: Int, failingPlayer :: Player, failingMove :: MoveAndAppendation} deriving (Eq, Show)
 
 fromFullMoves :: [FullMove] -> Game -> Either FullMoveError Game
-fromFullMoves = foldr ((>=>) . f) pure
+fromFullMoves = foldrM f
   where
     f (FullMove {moveNumber, whiteMove, blackMove}) = maybe Right (apply White) whiteMove >=> maybe Right (apply Black) blackMove
       where
         apply player move = maybe (Left $ FullMoveError {failingMoveNumber = moveNumber, failingPlayer = player, failingMove = move}) Right . applyMoveAndAppendation move
 
 fromMoves :: [MoveAndAppendation] -> Game -> Maybe Game
-fromMoves = foldr ((>=>) . applyMoveAndAppendation) pure
+fromMoves = foldrM applyMoveAndAppendation
 
 applyMoveAndAppendation :: MoveAndAppendation -> Game -> Maybe Game
 applyMoveAndAppendation (MoveAndAppendation notatedMove' appendation) game = do
@@ -203,17 +203,19 @@ applyMoveAndAppendation (MoveAndAppendation notatedMove' appendation) game = do
   where
     matchesCheckType game' = appendation == gameCheckType game'
 
-matches :: NotatedMove -> ChessMove CommonMove -> Bool
-matches (RegularMove (NotatedMoveValues p1 (maybeOriginFile, maybeOriginRank) x1 d1 pr1)) (RegularMove (CommonMove p2 (of2, or2) d2 x2 pr2)) =
-  p1 == p2
-    && ( case x1 of
-           Takes -> isJust x2
-           To -> isNothing x2
-       )
-    && d1 == d2
-    && all (== of2) maybeOriginFile
-    && all (== or2) maybeOriginRank
-    && pr1 == pr2
+matches :: NotatedMove -> ChessMoveInternal -> Bool
+matches (RegularMove notatedMove') (RegularMove internalMove) = matches' notatedMove' internalMove
+  where
+    matches' (NotatedMoveValues {notatedMovePiece, notatedFrom = (maybeOriginFile, maybeOriginRank), moveType, notatedToSquare, notatedPromotion}) (MoveAndPromotion (CommonMove {movingPiece, fromSquare = (originFile, originRank), toSquare, capturedPiece}) promotion) =
+      notatedMovePiece == movingPiece
+        && ( case moveType of
+               Takes -> isJust capturedPiece
+               To -> isNothing capturedPiece
+           )
+        && notatedToSquare == toSquare
+        && all (== originFile) maybeOriginFile
+        && all (== originRank) maybeOriginRank
+        && notatedPromotion == promotion
 matches (Castle l) (Castle r) = l == r
 matches _ _ = False
 

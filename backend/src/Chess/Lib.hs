@@ -1,12 +1,12 @@
 {-# LANGUAGE TupleSections #-}
 
-module Chess.Lib (guarded, singletonMaybe, withInput, Counts, one, getCount, traversefst) where
+module Chess.Lib (guarded, singletonMaybe, withInput, Counts, one, getCount, traversefst, foldrM, withInputF, takeWhileIncludingFirstFailure, firstJust) where
 
 import Control.Applicative (Alternative)
-import Control.Monad (guard)
+import Control.Monad (guard, (>=>))
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Semigroup (Sum (..))
+import Data.Semigroup (First (..), Sum (..))
 
 returning :: (Functor f) => (t -> f b) -> t -> f t
 returning f a = a <$ f a
@@ -21,6 +21,9 @@ singletonMaybe _ = Nothing
 withInput :: (a -> b) -> a -> (a, b)
 withInput f a = (a, f a)
 
+withInputF :: (Functor f) => (t -> f a) -> t -> f (t, a)
+withInputF f a = (a,) <$> f a
+
 type Counts a = Map a (Sum Int)
 
 one :: (Num a) => k -> Map k (Sum a)
@@ -31,3 +34,13 @@ getCount m a = maybe 0 getSum $ Map.lookup a m
 
 traversefst :: (Functor f) => (a -> f b) -> (a, c) -> f (b, c)
 traversefst f (a, b) = (,b) <$> f a
+
+foldrM :: (Foldable t, Monad m) => (a -> c -> m c) -> t a -> c -> m c
+foldrM f = foldr ((>=>) . f) pure
+
+takeWhileIncludingFirstFailure :: (a -> Bool) -> [a] -> [a]
+takeWhileIncludingFirstFailure _ [] = []
+takeWhileIncludingFirstFailure p (a : as) = a : if p a then takeWhileIncludingFirstFailure p as else []
+
+firstJust :: (a -> Maybe b) -> [a] -> Maybe b
+firstJust f = fmap getFirst . foldMap (fmap First . f)
