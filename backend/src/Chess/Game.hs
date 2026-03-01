@@ -8,7 +8,7 @@ import Chess.Data
 import Chess.Lib (firstJust, takeWhileIncludingFirstFailure, withInputF)
 import Control.Monad (guard, (<=<))
 import Data.List (singleton)
-import Data.Map (Map, (!))
+import Data.Map ((!))
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe, isNothing, maybeToList)
 import Data.Set (Set)
@@ -211,8 +211,13 @@ linesOfMovement = curry (linesOfMovementMap !)
           Queen -> queenLines
 
 linesOfAttack :: Piece -> Square -> [[Square]]
-linesOfAttack (player, Pawn) = map singleton . pawnAttacks player
-linesOfAttack piece' = linesOfMovement piece'
+linesOfAttack = curry (linesOfAttackMap !)
+  where
+    linesOfAttackMap = Map.fromList [((piece', square'), linesOfAttack' piece' square') | (piece', square') <- validPiecePlacements]
+      where
+        linesOfAttack' (player, pieceType') = case pieceType' of
+          Pawn -> map singleton . pawnAttacks player
+          _ -> linesOfMovement (player, pieceType')
 
 validPiecePlacements :: [(Piece, Square)]
 validPiecePlacements = [(piece', square') | piece' <- pieces, square' <- validPositions (pieceType piece')]
