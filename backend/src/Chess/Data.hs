@@ -1,18 +1,31 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
-module Chess.Data (NotatedMoveValues (..), NotatedMove, Square, Board, ChessMove (..), Game (..), CastleSide (..), Player (..), CastleLocation, PieceType (..), Rank (..), File (..), MoveType (..), CheckType (..), Piece, NonAttackingMove, AttackingMove, CheckStatus (..), ranks, files, pieces, allCastles, fromAttackingMove, fromNonAttackingMove, castleSides, fromPieces, checkType, pieceLocations, pieceTypes, notatedMove, CommonMove (..), Movement (..), attackingMove, nonAttackingMove, filesFrom, ranksFrom, EnPassantMove, fromEnPassantMove, majorPieces, piece, rank, square, file, pawnRanks, allSquares, pawnSquares, pieceType, MoveAndPromotion (..), ChessMoveInternal) where
+module Chess.Data (NotatedMoveValues (..), NotatedMove, Square, Board (..), ChessMove (..), Game (..), CastleSide (..), Player (..), CastleLocation, PieceType (..), Rank (..), File (..), MoveType (..), CheckType (..), Piece, NonAttackingMove, AttackingMove, CheckStatus (..), ranks, files, pieces, allCastles, fromAttackingMove, fromNonAttackingMove, castleSides, fromPieces, checkType, pieceLocations, pieceTypes, notatedMove, CommonMove (..), Movement (..), attackingMove, nonAttackingMove, filesFrom, ranksFrom, EnPassantMove, fromEnPassantMove, majorPieces, piece, rank, square, file, pawnRanks, allSquares, pawnSquares, pieceType, MoveAndPromotion (..), ChessMoveInternal) where
 
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 
-type Board = Map Square Piece
+data Board = Board
+  { pieceMap :: Map Square Piece,
+    whiteKing :: Square,
+    blackKing :: Square
+  }
+  deriving (Eq, Show)
 
 pieceLocations :: Player -> Board -> [(Square, PieceType)]
-pieceLocations player board = [(square', pieceType') | (square', (player', pieceType')) <- Map.toList board, player == player']
+pieceLocations player Board {pieceMap} = [(square', pieceType') | (square', (player', pieceType')) <- Map.toList pieceMap, player == player']
 
 fromPieces :: [(Square, Piece)] -> Board
-fromPieces = Map.fromList
+fromPieces pieces' =
+  Board
+    { pieceMap = m,
+      whiteKing = findKing' White,
+      blackKing = findKing' Black
+    }
+  where
+    m = Map.fromList pieces'
+    findKing' p = head [sq | (sq, (p', pt)) <- pieces', p == p', pt == King]
 
 data File
   = A

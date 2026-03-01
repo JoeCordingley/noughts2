@@ -74,23 +74,29 @@ gameCheckType = checkType <=< checkBoardStatus
 type PlayMove f = Game -> f (Status, Game)
 
 applyMoveToBoard :: Player -> ChessMove MoveAndPromotion -> Maybe Square -> Board -> Board
-applyMoveToBoard player (RegularMove (MoveAndPromotion (CommonMove Pawn fromSquare toSquare _) _)) (Just enPassantSquare) | toSquare == enPassantSquare = Map.delete fromSquare . Map.delete passedPawnSquare . Map.insert toSquare (player, Pawn)
+applyMoveToBoard player (RegularMove (MoveAndPromotion (CommonMove Pawn fromSquare toSquare _) _)) (Just enPassantSquare) board | toSquare == enPassantSquare =
+  board {pieceMap = Map.delete fromSquare . Map.delete passedPawnSquare . Map.insert toSquare (player, Pawn) $ pieceMap board}
   where
     passedPawnSquare = case player of
       White -> (file', Five)
       Black -> (file', Four)
     (file', _) = toSquare
-applyMoveToBoard player (RegularMove (MoveAndPromotion (CommonMove piece' fromSquare toSquare _) promotion)) _ = applyMovementToBoard $ Movement ((player, fromMaybe piece' promotion), fromSquare) toSquare
-applyMoveToBoard player (Castle side) _ = case side of
-  Queenside -> applyMovementToBoard (Movement ((player, King), (E, homeRow)) (C, homeRow)) . applyMovementToBoard (Movement ((player, Rook), (A, homeRow)) (D, homeRow))
-  Kingside -> applyMovementToBoard (Movement ((player, King), (E, homeRow)) (G, homeRow)) . applyMovementToBoard (Movement ((player, Rook), (H, homeRow)) (F, homeRow))
+applyMoveToBoard player (RegularMove (MoveAndPromotion (CommonMove piece' fromSquare toSquare _) promotion)) _ board = applyMovementToBoard (Movement ((player, fromMaybe piece' promotion), fromSquare) toSquare) board
+applyMoveToBoard player (Castle side) _ board = case side of
+  Queenside -> applyMovementToBoard (Movement ((player, King), (E, homeRow)) (C, homeRow)) . applyMovementToBoard (Movement ((player, Rook), (A, homeRow)) (D, homeRow)) $ board
+  Kingside -> applyMovementToBoard (Movement ((player, King), (E, homeRow)) (G, homeRow)) . applyMovementToBoard (Movement ((player, Rook), (H, homeRow)) (F, homeRow)) $ board
   where
     homeRow = case player of
       White -> One
       Black -> Eight
 
 applyMovementToBoard :: Movement (Piece, Square) Square -> Board -> Board
-applyMovementToBoard (Movement (piece', from) to) = Map.delete from . Map.insert to piece'
+applyMovementToBoard (Movement (p@(_, _), from) to) b@Board {pieceMap, whiteKing, blackKing} =
+  b
+    { pieceMap = Map.delete from . Map.insert to p $ pieceMap,
+      whiteKing = if p == (White, King) then to else whiteKing,
+      blackKing = if p == (Black, King) then to else blackKing
+    }
 
 legalMoves :: Game -> [(ChessMoveInternal, Game)]
 legalMoves (Game {gameBoard = board, playerToMove = player, castlesAvailable, halfMoveClock, fullMoveNumber, enPassantSquare}) = withInputF advanceGame =<< regularMoves ++ castles'
@@ -139,7 +145,7 @@ inCastlingPosition (player, castle) board = all empty interveningSquares && all 
     homeRow = case player of
       White -> One
       Black -> Eight
-    empty square' = isNothing $ Map.lookup square' board
+    empty square' = isNothing $ Map.lookup square' (pieceMap board)
     notAttacked sq = not $ isSquareAttackedBy (other player) sq board
     kingSquares =
       (,homeRow)
@@ -168,7 +174,7 @@ nonAttackingMoves playerToMove gameBoard = do
   toSquare <- takeWhile unoccupied lineOfMovement
   return $ nonAttackingMove movePiece fromSquare toSquare
   where
-    unoccupied space = isNothing $ Map.lookup space gameBoard
+    unoccupied space = isNothing $ Map.lookup space (pieceMap gameBoard)
 
 attackingMoves :: Player -> Board -> [AttackingMove]
 attackingMoves player board = do
@@ -180,7 +186,7 @@ attackingMoves player board = do
     return $ attackingMove movePiece fromSquare pieceType' toSquare
   where
     fmapSnd f a = (a,) <$> f a
-    pieceAt space = Map.lookup space board
+    pieceAt space = Map.lookup space (pieceMap board)
 
 enPassantMoves :: Player -> Board -> Square -> [EnPassantMove]
 enPassantMoves player board square' = do
@@ -191,10 +197,11 @@ enPassantMoves player board square' = do
   return $ Movement fromSquare toSquare
 
 isUnderCheck :: Player -> Board -> Bool
-isUnderCheck player board = maybe False (\sq -> isSquareAttackedBy (other player) sq board) (findKing player board)
+isUnderCheck player board = isSquareAttackedBy (other player) (findKing player board) board
 
-findKing :: Player -> Board -> Maybe Square
-findKing player board = Map.foldrWithKey (\sq (p, pt) acc -> if p == player && pt == King then Just sq else acc) Nothing board
+findKing :: Player -> Board -> Square
+findKing White = whiteKing
+findKing Black = blackKing
 
 isSquareAttackedBy :: Player -> Square -> Board -> Bool
 isSquareAttackedBy attacker sq board =
@@ -204,11 +211,11 @@ isSquareAttackedBy attacker sq board =
     || any (checkSlider [Rook, Queen]) rookLines'
     || any (checkSlider [Bishop, Queen]) bishopLines'
   where
-    checkPiece pt pSq = Map.lookup pSq board == Just (attacker, pt)
+    checkPiece pt pSq = Map.lookup pSq (pieceMap board) == Just (attacker, pt)
     checkKnight = checkPiece Knight
     checkPawn = checkPiece Pawn
     checkKing = checkPiece King
-    checkSlider pts line = case firstJust (\s -> (s,) <$> Map.lookup s board) line of
+    checkSlider pts line = case firstJust (\s -> (s,) <$> Map.lookup s (pieceMap board)) line of
       Just (_, (p, pt)) -> p == attacker && pt `elem` pts
       Nothing -> False
     knightSquares = concat $ linesOfMovement (attacker, Knight) sq

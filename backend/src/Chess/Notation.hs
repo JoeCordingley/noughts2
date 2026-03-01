@@ -147,7 +147,7 @@ piecePlacement board = intercalate "/" $ map rankPlacement (reverse ranks)
   where
     rankPlacement rank' = concatMap show $ foldr f [] files
       where
-        f file' acc = case (Map.lookup (file', rank') board, acc) of
+        f file' acc = case (Map.lookup (file', rank') (pieceMap board), acc) of
           (Just piece', _) -> FenPiece piece' : acc
           (Nothing, NumberOfSquares n : rest) -> NumberOfSquares (n + 1) : rest
           (Nothing, _) -> NumberOfSquares 1 : acc
