@@ -205,28 +205,28 @@ findKing White = whiteKing
 findKing Black = blackKing
 
 isSquareAttackedBy :: Player -> Square -> Board -> Bool
-isSquareAttackedBy attacker sq board =
-  any checkKnight knightSquares
-    || any checkPawn pawnAttackSquares
-    || any checkKing kingSquares
-    || any (checkSlider [Rook, Queen]) rookLines'
-    || any (checkSlider [Bishop, Queen]) bishopLines'
+isSquareAttackedBy attacker square' board = any (uncurry $ any . attacks') $ linesOfAttackTo attacker square'
   where
-    checkPiece pt pSq = Map.lookup pSq (pieceMap board) == Just (attacker, pt)
-    checkKnight = checkPiece Knight
-    checkPawn = checkPiece Pawn
-    checkKing = checkPiece King
-    checkSlider pts line = case firstJust (\s -> (s,) <$> Map.lookup s (pieceMap board)) line of
-      Just (_, (p, pt)) -> p == attacker && pt `elem` pts
-      Nothing -> False
-    knightSquares = concat $ linesOfMovement (attacker, Knight) sq
-    kingSquares = concat $ linesOfMovement (attacker, King) sq
-    pawnAttackSquares = case (attacker, rank sq) of
-      (White, One) -> []
-      (Black, Eight) -> []
-      _ -> pawnAttacks (other attacker) sq
-    rookLines' = linesOfMovement (attacker, Rook) sq
-    bishopLines' = linesOfMovement (attacker, Bishop) sq
+    attacks' pieceType' = any containsAttacker . firstJust pieceAt
+      where
+        containsAttacker = (== (attacker, pieceType'))
+    pieceAt square'' = Map.lookup square'' (pieceMap board)
+
+linesOfAttackTo :: Player -> Square -> [(PieceType, [[Square]])]
+linesOfAttackTo = curry (linesOfAttackToMap !)
+  where
+    linesOfAttackToMap = Map.fromList [((player, square'), linesOfAttackTo' player square') | player <- [White, Black], square' <- allSquares]
+      where
+        linesOfAttackTo' player square' =
+          (Pawn, map singleton pawnAttackSquares)
+            : [(pieceType', linesOfAttack (player, pieceType') square') | pieceType' <- [Knight, Bishop, Rook, Queen, King]]
+          where
+            pawnAttackSquares = case (player, rank square') of
+              (White, One) -> []
+              (White, Two) -> []
+              (Black, Seven) -> []
+              (Black, Eight) -> []
+              _ -> pawnAttacks (other player) square'
 
 linesOfMovement :: Piece -> Square -> [[Square]]
 linesOfMovement = curry (linesOfMovementMap !)
