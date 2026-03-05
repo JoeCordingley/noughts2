@@ -1,0 +1,11 @@
+cradle:
+  stack:
+    - path: "./src"
+      component: "chess:lib"
+
+    - path: "./app"
+      component: "chess:exe:chess-exe"
+
+    - path: "./test"
+      component: "chess:test:chess-test"
+

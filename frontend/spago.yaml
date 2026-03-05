@@ -1,0 +1,14 @@
+package:
+  name: frontend
+  dependencies:
+    - console
+    - deku
+    - effect
+    - prelude
+  test:
+    main: Test.Main
+    dependencies: []
+workspace:
+  package_set:
+    registry: 47.10.0
+  extra_packages: {}
