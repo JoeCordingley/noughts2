@@ -210,7 +210,7 @@ isSquareAttackedBy attacker square' board = any (uncurry $ any . attacks') $ lin
     attacks' pieceType' = any containsAttacker . firstJust pieceAt
       where
         containsAttacker = (== (attacker, pieceType'))
-    pieceAt square'' = Map.lookup square'' (pieceMap board)
+    pieceAt = (`Map.lookup` pieceMap board)
 
 linesOfAttackTo :: Player -> Square -> [(PieceType, [[Square]])]
 linesOfAttackTo = curry (linesOfAttackToMap !)
