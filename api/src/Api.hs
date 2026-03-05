@@ -102,7 +102,6 @@ actionsApi (Responses {createGamePage, createGameResponse, knownPlayerResponse, 
       where
         handleCreateGame name = do
           playerId <- newPlayerId
-          putStrLn $ "new player id: " <> tshow playerId
           gameId <- createGame $ Player playerId name
           return $ createGameResponse gameId playerId
     gameEndpoints id = withGame . const . gameHandler :<|> withGame . joinGameHandler :<|> withGame .: playGameHandler
@@ -114,16 +113,14 @@ actionsApi (Responses {createGamePage, createGameResponse, knownPlayerResponse, 
           maybe (throwError err400) (return . joinGameResponse id)
             =<< liftIO (traverse joinGame $ lookup "name" formData)
           where
-            joinGame name = do
-              playerId <- newPlayerId
-              addPlayer game (Player playerId name)
-              return playerId
+            joinGame name = returning addPlayer' =<< newPlayerId where
+              addPlayer' playerId = addPlayer game (Player playerId name)
         playGameHandler maybeCookies conn game =
           maybe (throwError err400) return
             =<< liftIO maybeConnectPlayer
           where
             connect player = connectGame game player conn
-            maybeConnectPlayer = traverse connect . join =<< (traverse (tablePlayer game) $ playerIdCookie =<< maybeCookies)
+            maybeConnectPlayer = traverse connect . join =<< traverse (tablePlayer game) (playerIdCookie =<< maybeCookies)
 
 data Responses = Responses
   { createGameResponse :: GameId -> PlayerId -> CreateGameResponse,
@@ -170,7 +167,6 @@ playerIdCookie = fmap PlayerId . getCookie playerIdKey
 
 cookieText :: Text -> Text -> Text -> Text
 cookieText path key value =
-  -- Example: "playerId=abc123; Path=/; HttpOnly; SameSite=Lax"
   decodeUtf8
     . BL.toStrict
     . BB.toLazyByteString

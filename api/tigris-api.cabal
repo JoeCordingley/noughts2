@@ -30,6 +30,7 @@ library
       Noughts.Api
       Noughts.Game
       Tigris.Api
+      Tigris.Game
   other-modules:
       Paths_tigris_api
   autogen-modules:

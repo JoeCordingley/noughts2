@@ -24,6 +24,7 @@ import Servant
 import Servant.API.WebSocket (WebSocket)
 import Text.StringRandom (stringRandomIO)
 
+
 generateGameId :: IO GameId
 generateGameId = GameId <$> generateId
 
@@ -64,7 +65,7 @@ composeMapWithInput = Map.mapMaybe . withInput . flip Map.lookup
     withInput f a = (a,) <$> f a
 
 fixAtomically :: ((a -> STM (IO b)) -> a -> STM (IO b)) -> a -> IO b
-fixAtomically f = fix $ \recurse -> join . atomically . (f $ pure . recurse)
+fixAtomically f = fix $ \recurse -> join . atomically . f (pure . recurse)
 
 type ChooseRoleHtml a = Map a (PlayerId, Name) -> PlayerId -> (Html ())
 
@@ -78,7 +79,7 @@ instance FromHttpApiData GameKey where
   parseUrlPiece value = case value of
     "tigris" -> Right Tigris
     "noughts" -> Right Noughts
-    other -> Left $ "invalid game" <> other
+    other -> Left $ "invalid game " <> other
 
 instance ToHttpApiData GameKey where
   toUrlPiece Tigris = "tigris"

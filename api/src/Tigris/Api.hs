@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
@@ -22,10 +23,9 @@ import Lucid.Base (Html)
 import Lucid.Html5
 import System.Random (StdGen, newStdGen)
 import System.Random.Shuffle (shuffleM)
+import Tigris.Game
 
 -- Types
-
-data Dynasty = Archer | Bull | Pot | Lion deriving (Eq, Ord, Generic, Show)
 
 instance FromJSON Dynasty
 
@@ -38,7 +38,6 @@ tigrisActions :: IO Actions
 tigrisActions = actions (newGame openingState) hostGame (table $ flip gameHtml) <$> newTVarIO Map.empty
   where
     hostGame game = play game =<< evalRandIO . setupGame =<< seatPlayers game
-    play game g = pure ()
 
 openingState :: GameState
 openingState = SeatingPlayers Map.empty
@@ -58,29 +57,24 @@ seatPlayersUnfixed receive end recurse playerMap = do
 atLeastTwo :: Map Dynasty a -> Bool
 atLeastTwo playerMap = Map.size playerMap >= 2
 
-setupGame :: (MonadRandom m) => Map Dynasty a -> m GameState
-setupGame m = Playing <$> shuffleM dynasties
-  where
-    dynasties = Map.keys m
-
 data GameResult
 
-play :: GameTVars GameState a -> GameState -> IO ()
-play game = void . updateWithNotify playGameUnfixed (notify game)
+play :: GameTVars GameState a -> PlayingState -> IO ()
+play game = void . updateWithNotify (\recurse -> playTurn getTurn >=> either (pure . pure) recurse) (notify game . Playing)
 
-playGameUnfixed :: (GameState -> m (f GameState)) -> GameState -> (m (f GameState))
-playGameUnfixed = undefined
+getTurn :: Dynasty -> Game -> f (Either Pass Game)
+getTurn = undefined
 
-data GameState = SeatingPlayers DynastyMap | Playing [Dynasty] deriving (Show)
+data GameState = SeatingPlayers DynastyMap | Playing PlayingState deriving (Show)
 
 gameHtml :: GameState -> Player -> Html ()
 gameHtml (SeatingPlayers map) = chooseDynasty map
 gameHtml (Playing dynasties) = boardHtml dynasties
 
-boardHtml :: [Dynasty] -> Player -> Html ()
-boardHtml dynasties player = div_ $ forM_ dynasties dynastyDiv
+boardHtml :: PlayingState -> Player -> Html ()
+boardHtml (PlayingState {turnOrder}) player = div_ [id_ "board"] $ forM_ turnOrder dynastyDiv
   where
-    dynastyDiv dynasty = toHtml $ show dynasty
+    dynastyDiv dynasty = div_ $ toHtml $ show dynasty
 
 chooseDynasty :: DynastyMap -> Player -> Html ()
 chooseDynasty playerMap thisPlayer =
