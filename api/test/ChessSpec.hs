@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
-module Main (main) where
+module ChessSpec (tests, readPgnsWithCount) where
 
 import Chess.Data
 import Chess.Game (startingGame)
@@ -10,7 +10,6 @@ import Chess.Notation as Notation
 import Chess.Notation.Parser as Parser
 import Control.Applicative (many)
 import Data.Attoparsec.Text (endOfInput, parseOnly)
-import Data.Bool (bool)
 import Data.Functor (void)
 import qualified Data.Set as Set
 import Data.Text (Text, pack)
@@ -41,13 +40,10 @@ readPgnsWithCount =
 --      -- Clean up
 --      removeFile "testfile.txt"
 
-main :: IO ()
-main = do
-  oneGameDebug <- T.readFile ("pgns/OneGameDebug.pgn")
-  pgns <- readPgnsWithCount
-  defaultMain $
-    testGroup
-      "All Tests"
+
+tests :: [(String, Int, Text)] -> TestTree
+tests pgns = testGroup
+      "Chess Tests"
       [ testOneMove,
         testFullMoveParser,
         testMoveParser,
@@ -55,9 +51,9 @@ main = do
         testMoveTextParser,
         testFenParser,
         testLegalMoves,
-        testPlayPgns $ map (\(name, _, text) -> (name, text)) pgns,
-        testOneGameDebug oneGameDebug
+        testPlayPgns $ map (\(name, _, text) -> (name, text)) pgns
       ]
+
 
 testOneMove :: TestTree
 testOneMove = testCase "oneMove" $ actual @?= expected
@@ -152,12 +148,5 @@ testPlayPgns = testGroup "play pgns" . map testPlayPgnCase
           where
             actual = fromFullMoves fullMoves startingGame
 
-testOneGameDebug :: Text -> TestTree
-testOneGameDebug filetext = testCase "one game debug" $ actual @?= Right debugFen
-  where
-    actual = fmap Notation.fen $ fromFullMoves fullMoves' startingGame
-    fullMoves' = fullMoves $ moveText $ parseShouldSucceed (Parser.lexeme Parser.parsePgn) filetext
 
-debugFen :: String
-debugFen = "r2qrnk1/5pbp/bpp2np1/3p4/PP1Pp3/1B2P2P/3N1PPB/R2QNRK1 b - - 3 17"
 

@@ -9,30 +9,24 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
-module Tigris.Api (Dynasty, gameServerDependencies) where
+module Tigris.Api (Dynasty, gameServer) where
 
 import BasicPrelude
-import Control.Concurrent.STM (STM, TVar, newTVarIO, orElse, readTVar, retry)
+import Control.Concurrent.STM (newTVarIO)
 import Control.Monad.Random.Lazy
-import Data.Aeson (FromJSON, ToJSON)
 import qualified Data.Map as Map
 import GHC.Generics (Generic)
 import Lib
 import Lucid (term, toHtml)
 import Lucid.Base (Html)
 import Lucid.Html5
-import System.Random (StdGen, newStdGen)
-import System.Random.Shuffle (shuffleM)
 import Tigris.Game
+import Data.Aeson (FromJSON, ToJSON)
+import Servant (Server)
+import Api (GameApi, actionsApi, responses, paths)
 
--- Types
-
-instance FromJSON Dynasty
-
-instance ToJSON Dynasty
-
-gameServerDependencies :: GameServerDependencies
-gameServerDependencies = GameServerDependencies Tigris tigrisActions
+gameServer :: IO (Server GameApi)
+gameServer = actionsApi (responses $ paths Tigris) <$> tigrisActions
 
 tigrisActions :: IO Actions
 tigrisActions = actions (newGame openingState) hostGame (table $ flip gameHtml) <$> newTVarIO Map.empty
@@ -60,7 +54,7 @@ atLeastTwo playerMap = Map.size playerMap >= 2
 data GameResult
 
 play :: GameTVars GameState a -> PlayingState -> IO ()
-play game = void . updateWithNotify (\recurse -> playTurn getTurn >=> either (pure . pure) recurse) (notify game . Playing)
+play game = void . updateWithNotify (playGame (pure . pure)) (notify game . Playing)
 
 getTurn :: Dynasty -> Game -> f (Either Pass Game)
 getTurn = undefined

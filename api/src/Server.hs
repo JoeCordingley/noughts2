@@ -1,0 +1,23 @@
+module Server (runServer) where
+
+import Servant
+import Api (Api)
+import Lib
+import qualified Chess.Api as Chess
+import qualified Tigris.Api as Tigris
+import Network.Wai.Handler.Warp (run)
+
+runServer :: IO ()
+runServer = do
+  putStrLn "Running on http://localhost:8080/"
+  server <- startServer
+  run 8080 (serve (Proxy :: Proxy Api) server)
+
+startServer :: IO (Server Api)
+startServer = joinHandlers <$> Tigris.gameServer <*> Chess.gameServer
+  where
+    joinHandlers tigris chess = serveGames :<|> serveDirectoryWebApp "static"
+      where
+        serveGames Tigris = tigris
+        serveGames Noughts = undefined
+        serveGames Chess = chess

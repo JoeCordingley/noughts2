@@ -8,7 +8,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
-module Api (runServer) where
+module Api (Api, GameApi, actionsApi, paths, responses) where
 
 import BasicPrelude hiding (for_)
 import qualified Data.ByteString.Builder as BB
@@ -19,12 +19,11 @@ import Lib
 import Lucid (term)
 import Lucid.Base (Html)
 import Lucid.Html5
-import Network.Wai.Handler.Warp (run)
 import Servant
 import Servant.API.ContentTypes.Lucid (HTML)
 import Servant.API.WebSocket (WebSocket)
-import qualified Tigris.Api as Tigris
 import Web.Cookie
+
 
 type WithGame = Capture "game" GameKey
 
@@ -58,11 +57,6 @@ type CreateGameResponse = Headers '[Header "HX-Redirect" Text, Header "Set-Cooki
 
 type JoinGameResponse = Headers '[Header "Set-Cookie" Text] (Html ())
 
-runServer :: IO ()
-runServer = do
-  putStrLn "Running on http://localhost:8080/"
-  server <- startServer
-  run 8080 (serve (Proxy :: Proxy Api) server)
 
 data Paths = Paths
   { getGamePath :: GameId -> Text,
@@ -83,16 +77,6 @@ paths game =
     rootUrl = ("/" <>)
     apiLink api = safeLink (Proxy @Api) api game
 
-startGameServer :: GameServerDependencies -> IO (Server GameApi)
-startGameServer (GameServerDependencies gameKey actions) = actionsApi (responses $ paths gameKey) <$> actions
-
-startServer :: IO (Server Api)
-startServer = joinHandlers <$> (startGameServer Tigris.gameServerDependencies)
-  where
-    joinHandlers tigris = serveGames :<|> serveDirectoryWebApp "static"
-      where
-        serveGames Tigris = tigris
-        serveGames Noughts = undefined
 
 actionsApi :: Responses -> Actions -> Server GameApi
 actionsApi (Responses {createGamePage, createGameResponse, knownPlayerResponse, unknownPlayerResponse, joinGameResponse}) (Actions {createGame, newPlayerId, getGame}) = (gameHomeHandler :<|> createGameHandler) :<|> gameEndpoints

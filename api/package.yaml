@@ -47,6 +47,8 @@ dependencies:
 - random
 - random-shuffle
 - MonadRandom
+- attoparsec
+- transformers
 
 ghc-options:
 - -Wall
@@ -84,3 +86,5 @@ tests:
     dependencies:
     - tigris-api
     - HUnit
+    - tasty
+    - tasty-hunit

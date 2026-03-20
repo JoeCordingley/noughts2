@@ -1,7 +1,10 @@
 import Data.Functor (void)
-import Test.HUnit
+import Test.Tasty
+import Test.Tasty.HUnit
+import qualified ChessSpec as ChessSpec
 
 main :: IO ()
-main = void $ runTestTT tests
+main = do
+  chessPgns <- ChessSpec.readPgnsWithCount
+  defaultMain $ testGroup "all" [ ChessSpec.tests chessPgns]
 
-tests = test [1.0 ~=? 1.0]

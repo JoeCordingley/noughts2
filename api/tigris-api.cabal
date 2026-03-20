@@ -26,9 +26,17 @@ source-repository head
 library
   exposed-modules:
       Api
+      Chess
+      Chess.Api
+      Chess.Data
+      Chess.Game
+      Chess.Lib
+      Chess.Notation
+      Chess.Notation.Parser
       Lib
       Noughts.Api
       Noughts.Game
+      Server
       Tigris.Api
       Tigris.Game
   other-modules:
@@ -42,6 +50,7 @@ library
       MonadRandom
     , aeson
     , async
+    , attoparsec
     , base >=4.7 && <5
     , basic-prelude
     , bimap
@@ -63,6 +72,7 @@ library
     , string-random
     , text
     , text-show
+    , transformers
     , wai
     , warp
     , websockets
@@ -81,6 +91,7 @@ executable tigris-api-exe
       MonadRandom
     , aeson
     , async
+    , attoparsec
     , base >=4.7 && <5
     , basic-prelude
     , bimap
@@ -103,6 +114,7 @@ executable tigris-api-exe
     , text
     , text-show
     , tigris-api
+    , transformers
     , wai
     , warp
     , websockets
@@ -112,6 +124,7 @@ test-suite tigris-api-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      ChessSpec
       Paths_tigris_api
   autogen-modules:
       Paths_tigris_api
@@ -123,6 +136,7 @@ test-suite tigris-api-test
     , MonadRandom
     , aeson
     , async
+    , attoparsec
     , base >=4.7 && <5
     , basic-prelude
     , bimap
@@ -142,9 +156,12 @@ test-suite tigris-api-test
     , servant-websockets
     , stm
     , string-random
+    , tasty
+    , tasty-hunit
     , text
     , text-show
     , tigris-api
+    , transformers
     , wai
     , warp
     , websockets

@@ -8,16 +8,14 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -Wno-type-defaults #-}
 
-module Noughts.Api (runServer, gameServerDependencies) where
+module Noughts.Api (runServer) where
 
 import BasicPrelude
 import Control.Concurrent (MVar, forkIO, newEmptyMVar, putMVar, readMVar, takeMVar)
 import Control.Lens
 import Data.Aeson (FromJSON (..), ToJSON, decode)
-import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Map as Map
 import Data.Semigroup
-import qualified Data.Text.Lazy as TL
 import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
 import Lib hiding (Player)
@@ -192,8 +190,6 @@ instance FromJSON MoveKey
 chooseRoleNoughts :: ChooseRoleHtml NoughtOrCross
 chooseRoleNoughts = undefined
 
-gameServerDependencies :: GameServerDependencies
-gameServerDependencies = GameServerDependencies Noughts undefined
 
 -- GameServerDependencies Noughts playNoughts isReadyNoughts chooseRoleNoughts
 

@@ -10,7 +10,6 @@ import Chess.Notation hiding (fen)
 import Control.Applicative (many, optional, some, (<|>))
 import Data.Attoparsec.Text as Parser (Parser, char, choice, decimal, endOfLine, skipSpace, takeWhile, takeWhile1, try)
 import Data.Char (isLetter)
-import Data.Functor.Compose (Compose (..))
 import Data.List (intersperse)
 import qualified Data.Set as Set
 import Data.Text (Text, unpack)

@@ -5,12 +5,12 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
-module Lib where
+module Lib (ChooseRoleHtml, NoughtOrCross, PlayerId(..), keepAlive, sendHtml, encodeToText, recursing, GameId, Actions(..), Player(..), returning, Table(..), GameTVars(..), GameKey(..), actions, newGame, table, updateWithNotify, nextMessageFromAnyPlayer, notify, WebSocketContainer(..)) where
 
 import BasicPrelude
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Async (cancel, withAsync)
-import Control.Concurrent.STM (STM, TQueue, TVar, atomically, modifyTVar, modifyTVar', newTQueueIO, newTVar, orElse, readTQueue, readTVar, readTVarIO, retry, writeTQueue, writeTVar)
+import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, modifyTVar', newTQueueIO, newTVar, orElse, readTQueue, readTVar, readTVarIO, retry, writeTQueue, writeTVar)
 import Data.Aeson (FromJSON, ToJSON, decode)
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Function (fix)
@@ -57,12 +57,8 @@ instance FromHttpApiData GameId where
   parseUrlPiece = Right . GameId
 
 instance ToHttpApiData GameId where
-  toUrlPiece (GameId id) = id
+  toUrlPiece (GameId id') = id'
 
-composeMapWithInput :: (Ord a) => Map a b -> Map k a -> Map k (a, b)
-composeMapWithInput = Map.mapMaybe . withInput . flip Map.lookup
-  where
-    withInput f a = (a,) <$> f a
 
 fixAtomically :: ((a -> STM (IO b)) -> a -> STM (IO b)) -> a -> IO b
 fixAtomically f = fix $ \recurse -> join . atomically . f (pure . recurse)
@@ -73,22 +69,20 @@ instance FromJSON NoughtOrCross
 
 data NoughtOrCross = Nought | Cross deriving (Eq, Ord, Show, Generic)
 
-data GameKey = Tigris | Noughts
+data GameKey = Tigris | Noughts | Chess
 
 instance FromHttpApiData GameKey where
   parseUrlPiece value = case value of
     "tigris" -> Right Tigris
     "noughts" -> Right Noughts
+    "chess" -> Right Chess
     other -> Left $ "invalid game " <> other
 
 instance ToHttpApiData GameKey where
   toUrlPiece Tigris = "tigris"
   toUrlPiece Noughts = "noughts"
+  toUrlPiece Chess = "chess"
 
-data GameServerDependencies = GameServerDependencies
-  { gameKey :: GameKey,
-    gameActions :: IO Actions
-  }
 
 data Actions = Actions {createGame :: Player -> IO GameId, newPlayerId :: IO PlayerId, getGame :: GameId -> IO (Maybe Table)}
 
@@ -96,13 +90,15 @@ data Table = Table {addPlayer :: Player -> IO (), connectGame :: Player -> Conne
 
 data Player = Player {playerId :: PlayerId, playerName :: Name} deriving (Show, Eq)
 
-type Unfixed a b = (a -> b) -> a -> b
-
-type UnfixedSetup s = Unfixed s (STM (IO s))
-
 instance HasLink WebSocket where
   type MkLink WebSocket a = a
   toLink f _ segments = f segments
+
+instance HasLink WebSocketContainer where
+  type MkLink WebSocketContainer a = a
+  toLink f _ segments = f segments
+
+newtype WebSocketContainer = WebSocketContainer {getWebsocket :: WebSocket}
 
 data GameTVars state input = GameTVars
   { latestState :: TVar state,
@@ -176,3 +172,4 @@ nextMessageFromAnyPlayer :: TVar [(Player, STM input)] -> STM (Player, input)
 nextMessageFromAnyPlayer playerInputs = readTVar playerInputs >>= nextPlayerMessage
   where
     nextPlayerMessage = foldr orElse retry . map sequence
+
