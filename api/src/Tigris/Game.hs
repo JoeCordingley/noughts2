@@ -15,8 +15,9 @@ import Data.Bool (bool)
 import Data.List (sort)
 import Control.Monad.State (StateT(..))
 import Data.Monoid (Sum(..))
+import Data.Maybe (fromJust)
 
-type Sphere = Tile
+type Tile = Sphere
 
 data Dynasty = Archer | Bull | Pot | Lion deriving (Eq, Ord, Generic, Show)
 instance FromJSON Dynasty
@@ -31,7 +32,11 @@ data Game = Game {bag :: [Tile], players :: Map Dynasty PlayerInfo, board :: Boa
 
 data Board = Board {numberOfTreasuresLeft :: Int} deriving Show
 
-data PlayerInfo = PlayerInfor {score :: Score, hand :: Bag Tile} deriving Show
+data PlayerInfo = PlayerInfo {score :: Score, hand :: Bag Tile, catastropheTiles :: Int} deriving Show
+
+
+startingPlayerInfo :: Hand -> PlayerInfo
+startingPlayerInfo startingHand = PlayerInfo{score = startingScore, hand = startingHand, catastropheTiles = 2}
 
 type Bag a = Map a (Sum Int)
 
@@ -40,10 +45,10 @@ type Hand = Bag Tile
 one :: a -> Bag a 
 one a = Map.singleton a (Sum 1)
 
-data Tile = Temple | Market | Settlement | Farm deriving (Show, Eq, Ord)
+data Sphere = Temple | Market | Settlement | Farm deriving (Show, Eq, Ord)
 
 startingBoard :: Board
-startingBoard = undefined
+startingBoard = Board {numberOfTreasuresLeft = 10}
 
 allCivilizationTiles :: Bag Tile
 allCivilizationTiles = Map.fromList[(Temple, 57), (Market, 30), (Settlement, 30), (Farm,  36)]
@@ -55,15 +60,18 @@ bagToList :: Bag a -> [a]
 bagToList = Map.foldrWithKey f [] where
   f k (Sum n) ts = replicate n k <> ts
 
-type Score = Map Sphere Int
+type Score = Map Sphere (Sum Int)
 
-type Scores = Map Dynasty Score
+emptyHand :: Hand
+emptyHand = allSpheresZero
 
 setupGame :: (MonadRandom m) => Map Dynasty a -> m PlayingState
 setupGame m = fromShuffled <$> shuffleM dynasties <*> shuffleM (bagToList tilesMinusStartingTemples)
   where
     fromShuffled dynasties' tiles = PlayingState {turnOrder = cycle dynasties, game = startingGame} where
-      startingGame = Game {players = Map.fromList $ map (,startingPlayerInfo) dynasties', board = startingBoard}
+      startingGame = Game {bag = remainingTiles, players = fmap startingPlayerInfo startingPlayerHand, board = startingBoard}
+      (startingPlayerHand, remainingTiles) = fromJust $ deals traverse dealUpToSix emptyHands tiles
+      emptyHands = Map.fromList $ map (,emptyHand) dynasties'
     dynasties = Map.keys m
 
 type Winners = [Dynasty]
@@ -74,20 +82,23 @@ winners finalScores' = snd . Map.findMax $ Map.foldMapWithKey groupByScore final
 
 data Pass
 
-startingPlayerInfo :: PlayerInfo
-startingPlayerInfo = undefined
+allSpheresZero :: Bag Tile
+allSpheresZero = Map.fromList $ map (,0) spheres
 
 startingScore :: Score
-startingScore = Map.fromList $ map (,0) spheres
+startingScore = allSpheresZero
 
 spheres :: [Sphere]
 spheres = [Settlement, Temple, Farm, Market]
 
 playGame :: Monad m => (Winners -> m a) -> (PlayingState -> m a) -> PlayingState -> m a
-playGame finish recurse (PlayingState (player : subsequentPlayers) game) = playTurn getTurn player game >>= either finish (recurse . PlayingState subsequentPlayers)
+playGame finish recurse (PlayingState (player : subsequentPlayers) game) = playTurn (getTurn getAction) player game >>= either finish (recurse . PlayingState subsequentPlayers)
 
-getTurn :: Dynasty -> Game -> f (Either Game (Either Winners Game))
-getTurn = undefined
+data Action = PositionLeader | PlaceTile | PlayCatastrophe | ReplaceTiles Hand| Pass
+
+
+getAction :: Dynasty -> Game -> f Action
+getAction = undefined
 
 playTurn :: (Monad f) => (Dynasty -> Game -> f (Either Game (Either Winners Game))) -> Dynasty -> Game -> f (Either Winners Game)
 playTurn getTurn player = runExceptT . (liftEither . maybeEndGame <=< liftEither . endTurn <=< playUpToTwoTurns) where
@@ -110,16 +121,21 @@ continueGame game = bool Just (const Nothing) (isFinished $ board game) game
 isFinished :: Board -> Bool
 isFinished board = numberOfTreasuresLeft board <= 2
 
+getTurn :: Functor f => (Dynasty -> Game -> f Action) -> Dynasty -> Game -> f (Either Game (Either Winners Game))
+getTurn f dynasty game = flip g game <$> f dynasty game where
+  g Pass = Left 
+  g (ReplaceTiles hand) = Right . orDetermineWinners (playerAndBag . uncurry $ deals (thisPlayer dynasty . traverse . playerHand) dealUpToSix)
+
 endTurn :: Game -> Either Winners Game
-endTurn = orDetermineWinners . playerAndBag . uncurry $ deals dealUpToSix where
+endTurn = orDetermineWinners . playerAndBag . uncurry $ deals (traverse . playerHand) dealUpToSix where
 
 dealUpToSix :: Hand -> [Tile] -> Maybe (Hand, [Tile])
 dealUpToSix playerTiles bag = foldr (>=>) pure (replicate (6 - length playerTiles) dealOne) (playerTiles, bag) where
   dealOne (playerTiles, x:xs) = Just (one x <> playerTiles, xs)
   dealOne (_,[]) = Nothing
 
-deals :: (Monad m) => (Hand -> [Tile] -> m (Hand, [Tile])) -> PlayerInfos -> [Tile] -> m (PlayerInfos, [Tile])
-deals f = runStateT . (traverse . playerHand $ StateT . f)
+deals :: ((Hand -> StateT [Tile] m Hand) -> s -> StateT [Tile] m s) -> (Hand -> [Tile] -> m (Hand, [Tile])) -> s -> [Tile] -> m (s, [Tile])
+deals l f = runStateT . (l $ StateT . f)
 
 playerAndBag :: Functor f => ((PlayerInfos, [Tile]) -> f (PlayerInfos, [Tile])) -> Game -> f Game
 playerAndBag f game = uncurry g <$> f (players game, bag game) where
@@ -128,3 +144,6 @@ playerAndBag f game = uncurry g <$> f (players game, bag game) where
 playerHand :: Functor f => (Hand -> f Hand) -> PlayerInfo -> f PlayerInfo
 playerHand f playerInfo = fmap g . f $ hand playerInfo where
   g hand = playerInfo{hand}
+
+thisPlayer :: Applicative f => Dynasty -> (Maybe PlayerInfo -> f (Maybe PlayerInfo)) -> PlayerInfos -> f PlayerInfos
+thisPlayer k f = Map.alterF f k
