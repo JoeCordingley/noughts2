@@ -70,7 +70,7 @@ setupGame m = fromShuffled <$> shuffleM dynasties <*> shuffleM (bagToList tilesM
   where
     fromShuffled dynasties' tiles = PlayingState {turnOrder = cycle dynasties, game = startingGame} where
       startingGame = Game {bag = remainingTiles, players = fmap startingPlayerInfo startingPlayerHand, board = startingBoard}
-      (startingPlayerHand, remainingTiles) = fromJust $ deals traverse dealUpToSix emptyHands tiles
+      (startingPlayerHand, remainingTiles) = fromJust $ state traverse dealUpToSix (emptyHands, tiles)
       emptyHands = Map.fromList $ map (,emptyHand) dynasties'
     dynasties = Map.keys m
 
@@ -96,12 +96,11 @@ playGame finish recurse (PlayingState (player : subsequentPlayers) game) = playT
 
 data Action = PositionLeader | PlaceTile | PlayCatastrophe | ReplaceTiles Hand| Pass
 
-
 getAction :: Dynasty -> Game -> f Action
 getAction = undefined
 
 playTurn :: (Monad f) => (Dynasty -> Game -> f (Either Game (Either Winners Game))) -> Dynasty -> Game -> f (Either Winners Game)
-playTurn getTurn player = runExceptT . (liftEither . maybeEndGame <=< liftEither . endTurn <=< playUpToTwoTurns) where
+playTurn getTurn player = runExceptT . (liftEither . (maybeEndGame <=< endTurn) <=< playUpToTwoTurns) where
   playUpToTwoTurns = orReturnAfterPass . twice turn
   orReturnAfterPass = ExceptT . fmap (either Right id) . runExceptT . runExceptT
   turn = ExceptT . ExceptT . getTurn player
@@ -124,18 +123,18 @@ isFinished board = numberOfTreasuresLeft board <= 2
 getTurn :: Functor f => (Dynasty -> Game -> f Action) -> Dynasty -> Game -> f (Either Game (Either Winners Game))
 getTurn f dynasty game = flip g game <$> f dynasty game where
   g Pass = Left 
-  g (ReplaceTiles hand) = Right . orDetermineWinners (playerAndBag . uncurry $ deals (thisPlayer dynasty . traverse . playerHand) dealUpToSix)
+  g (ReplaceTiles hand) = Right . (orDetermineWinners . playerAndBag $ state (thisPlayer dynasty . traverse . playerHand)  dealUpToSix)
 
 endTurn :: Game -> Either Winners Game
-endTurn = orDetermineWinners . playerAndBag . uncurry $ deals (traverse . playerHand) dealUpToSix where
+endTurn = orDetermineWinners . playerAndBag $ state (traverse . playerHand) dealUpToSix
 
-dealUpToSix :: Hand -> [Tile] -> Maybe (Hand, [Tile])
-dealUpToSix playerTiles bag = foldr (>=>) pure (replicate (6 - length playerTiles) dealOne) (playerTiles, bag) where
-  dealOne (playerTiles, x:xs) = Just (one x <> playerTiles, xs)
-  dealOne (_,[]) = Nothing
+state :: ((a -> StateT st f a) -> s -> StateT st f s) -> (a -> StateT st f a) -> (s, st) -> f (s, st)
+state l f (s, st) = runStateT (l f s) st
 
-deals :: ((Hand -> StateT [Tile] m Hand) -> s -> StateT [Tile] m s) -> (Hand -> [Tile] -> m (Hand, [Tile])) -> s -> [Tile] -> m (s, [Tile])
-deals l f = runStateT . (l $ StateT . f)
+dealUpToSix :: Hand -> StateT [Tile] Maybe Hand
+dealUpToSix playerTiles = foldr (>=>) pure (replicate (6 - length playerTiles) (StateT . dealOne)) playerTiles where
+  dealOne playerTiles (x:xs) = Just (one x <> playerTiles, xs)
+  dealOne _ [] = Nothing
 
 playerAndBag :: Functor f => ((PlayerInfos, [Tile]) -> f (PlayerInfos, [Tile])) -> Game -> f Game
 playerAndBag f game = uncurry g <$> f (players game, bag game) where
@@ -146,4 +145,5 @@ playerHand f playerInfo = fmap g . f $ hand playerInfo where
   g hand = playerInfo{hand}
 
 thisPlayer :: Applicative f => Dynasty -> (Maybe PlayerInfo -> f (Maybe PlayerInfo)) -> PlayerInfos -> f PlayerInfos
-thisPlayer k f = Map.alterF f k
+thisPlayer = flip Map.alterF 
+
