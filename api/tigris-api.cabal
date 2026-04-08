@@ -38,6 +38,7 @@ library
       Noughts.Game
       Server
       Tigris.Api
+      Tigris.Data
       Tigris.Game
   other-modules:
       Paths_tigris_api
