@@ -1,7 +1,30 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE TupleSections #-}
 
-module Tigris.Game (Dynasty(..), PlayingState(..), Game, setupGame, playTurn, playGame, Pass) where
+module Tigris.Game
+  ( Dynasty (..),
+    PlayingState (..),
+    Game (..),
+    Board (..),
+    Grid,
+    LeaderPositions,
+    PlayerInfo (..),
+    Space (..),
+    PlacedPiece (..),
+    Marking (..),
+    Bag,
+    Hand,
+    Score,
+    Winners,
+    Pass,
+    Action (..),
+    LeaderPosition (..),
+    Position (..),
+    setupGame,
+    playTurn,
+    playGame,
+  )
+where
 
 import Control.Monad.Random.Lazy
 import Control.Arrow (first)
@@ -15,36 +38,12 @@ import Control.Monad.State (StateT(..))
 import Data.Monoid (Sum(..))
 import Data.Maybe (fromJust)
 import Data.Functor.Identity (Identity(..))
-import Tigris.Data (Sphere(..), Tile(..), Dynasty(..), Leader(..))
+import Tigris.Data
 
-
-data PlayingState = PlayingState {turnOrder :: [Dynasty], game :: Game} deriving (Show)
-
-type PlayerInfos = Map Dynasty PlayerInfo
-
-data Game = Game {bag :: [Tile], players :: Map Dynasty PlayerInfo, board :: Board} deriving (Show)
-
-data Board = Board {numberOfTreasuresLeft :: Int, leaderPositions :: LeaderPositions, grid :: Grid } deriving Show
-
-type Grid = Map Position Space
-
-type LeaderPositions = Map (Dynasty, Leader) Position
-
-
-data PlayerInfo = PlayerInfo {score :: Score, hand :: Bag Tile, catastropheTiles :: Int} deriving Show
-
-data Space = Space {marking :: Marking, placedPiece :: Maybe PlacedPiece} deriving Show
-
-data PlacedPiece = PlacedLeader Leader deriving Show
-
-data Marking = Sand | River | Temple {specialBorder :: Bool} deriving Show
 
 startingPlayerInfo :: Hand -> PlayerInfo
 startingPlayerInfo startingHand = PlayerInfo{score = startingScore, hand = startingHand, catastropheTiles = 2}
 
-type Bag a = Map a (Sum Int)
-
-type Hand = Bag Tile
 
 one :: a -> Bag a 
 one a = Map.singleton a (Sum 1)
@@ -67,7 +66,6 @@ bagToList :: Bag a -> [a]
 bagToList = Map.foldrWithKey f [] where
   f k (Sum n) ts = replicate n k <> ts
 
-type Score = Map Sphere (Sum Int)
 
 emptyHand :: Hand
 emptyHand = Map.fromList $ map (first Tile) allSpheresZero
@@ -81,13 +79,10 @@ setupGame m = fromShuffled <$> shuffleM dynasties <*> shuffleM (bagToList tilesM
       emptyHands = Map.fromList $ map (,emptyHand) dynasties'
     dynasties = Map.keys m
 
-type Winners = [Dynasty]
-
 winners :: Map Dynasty Score -> Winners
 winners finalScores' = snd . Map.findMax $ Map.foldMapWithKey groupByScore finalScores' where
   groupByScore k v = Map.singleton (sort $ Map.elems v) [k]
 
-data Pass
 
 allSpheresZero :: [(Sphere, Sum Int)]
 allSpheresZero = map (,0) spheres
@@ -101,9 +96,6 @@ spheres = [Settlements, Temples, Farms, Markets]
 playGame :: Monad m => (Winners -> m a) -> (PlayingState -> m a) -> PlayingState -> m a
 playGame finish recurse (PlayingState (player : subsequentPlayers) game) = playTurn (getTurn getAction) player game >>= either finish (recurse . PlayingState subsequentPlayers)
 
-data Action = PositionLeader Leader LeaderPosition | PlaceTile | PlayCatastrophe | ReplaceTiles Hand| Pass
-data LeaderPosition = OffBoard | OnBoard Position
-data Position = Position deriving (Show, Eq, Ord)
 
 getAction :: Dynasty -> Game -> f Action
 getAction = undefined
