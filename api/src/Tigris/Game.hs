@@ -70,7 +70,7 @@ setupGame m = fromShuffled <$> shuffleM dynasties <*> shuffleM (bagToList tilesM
   where
     fromShuffled dynasties' tiles = PlayingState {_turnOrder = cycle dynasties, _game = startingGame} where
       startingGame = Game {_bag = remainingTiles, _players = fmap startingPlayerInfo startingPlayerHand, _board = startingBoard}
-      (startingPlayerHand, remainingTiles) = fromJust $ runStateT (emptyHands & traverse %%~ dealUpToSix) tiles
+      (startingPlayerHand, remainingTiles) = fromJust $ state traverse dealUpToSix (emptyHands, tiles)
       emptyHands = Map.fromList $ map (,emptyHand) dynasties'
     dynasties = Map.keys m
 
@@ -119,23 +119,22 @@ isFinished board' = view numberOfTreasuresLeft board' <= 2
 getTurn :: Functor f => (Dynasty -> Game -> f Action) -> Dynasty -> Game -> f (Either Game (Either Winners Game))
 getTurn f dynasty game' = flip g game' <$> f dynasty game' where
   g Pass = Left 
-  g (ReplaceTiles hand') = Right . orDetermineWinners (playerAndBag (\ (ps, b) -> runStateT (ps & at dynasty . traverse . hand %%~ dealUpToSix) b))
+  g (ReplaceTiles hand') = Right . (orDetermineWinners . playerAndBag $ state (at dynasty . traverse . hand) dealUpToSix)
   g (PositionLeader leader leaderPosition) = (Right . Right) . case leaderPosition of
     OffBoard -> over board (placeLeaderOffBoard dynasty leader Nothing)
     OnBoard position -> undefined
 
 placeLeaderOffBoard :: Dynasty -> Leader -> Maybe Position -> Board -> Board
-placeLeaderOffBoard dynasty leader newPosition board' = 
-  let (oldPosition, board'') = board' & leaderPositions . at (dynasty, leader) <<.~ newPosition
-  in board'' & grid %~ moveLeader oldPosition
-  where
-    moveLeader oldPosition = maybe id addToGrid newPosition . maybe id removeFromGrid oldPosition
-    removeFromGrid position = at position . _Just . placedPiece .~ Nothing
-    addToGrid position = at position . _Just . placedPiece .~ (Just $ PlacedLeader leader)
+placeLeaderOffBoard dynasty leader newPosition = uncurry (over grid . moveLeader )  . (leaderPositions . at (dynasty, leader)) (, newPosition) where
+  moveLeader oldPosition = maybe id addToGrid newPosition . maybe id removeFromGrid oldPosition
+  removeFromGrid position = over (at position) (const Nothing)
+  addToGrid position = over (at position) undefined
 
 endTurn :: Game -> Either Winners Game
-endTurn = orDetermineWinners (playerAndBag (\(ps, b) -> runStateT (ps & traverse . hand %%~ dealUpToSix) b))
+endTurn = orDetermineWinners . playerAndBag $ state (traverse . hand) dealUpToSix
 
+state :: ((a -> StateT st f b) -> s -> StateT st f t) -> (a -> StateT st f b) -> (s, st) -> f (t, st)
+state l f (s, st) = runStateT (l f s) st
 
 dealUpToSix :: Hand -> StateT [Tile] Maybe Hand
 dealUpToSix playerTiles = foldr (>=>) pure (replicate (6 - length playerTiles) (StateT . dealOne)) playerTiles where
