@@ -66,7 +66,7 @@ gameHtml (SeatingPlayers map) = chooseDynasty map
 gameHtml (Playing dynasties) = boardHtml dynasties
 
 boardHtml :: PlayingState -> Player -> Html ()
-boardHtml (PlayingState {turnOrder}) player = div_ [id_ "board"] $ forM_ turnOrder dynastyDiv
+boardHtml (PlayingState {_turnOrder}) player = div_ [id_ "board"] $ forM_ _turnOrder dynastyDiv
   where
     dynastyDiv dynasty = div_ $ toHtml $ show dynasty
 

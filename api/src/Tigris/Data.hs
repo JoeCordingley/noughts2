@@ -1,17 +1,34 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell #-}
+
 module Tigris.Data
   ( Sphere (..),
     Tile (..),
+    tileSphere,
     Dynasty (..),
     Leader (..),
+    leaderSphere,
     PlayingState (..),
+    turnOrder,
+    game,
     PlayerInfos,
     Game (..),
+    bag,
+    players,
+    board,
     Board (..),
+    numberOfTreasuresLeft,
+    leaderPositions,
+    grid,
     Grid,
     LeaderPositions,
     PlayerInfo (..),
+    score,
+    hand,
+    catastropheTiles,
     Space (..),
+    marking,
+    placedPiece,
     PlacedPiece (..),
     Marking (..),
     Bag,
@@ -25,34 +42,35 @@ module Tigris.Data
   )
 where
 
+import Control.Lens (makeLenses)
 import Data.Aeson (FromJSON, ToJSON)
 import GHC.Generics (Generic)
 import Data.Map (Map)
 import Data.Monoid (Sum)
 
 data Sphere = Temples | Markets | Settlements | Farms deriving (Show, Eq, Ord)
-newtype Tile = Tile {tileSphere :: Sphere} deriving (Show, Eq, Ord)
+newtype Tile = Tile {_tileSphere :: Sphere} deriving (Show, Eq, Ord)
 data Dynasty = Archer | Bull | Pot | Lion deriving (Eq, Ord, Generic, Show)
 instance FromJSON Dynasty
 instance ToJSON Dynasty
 
-newtype Leader = Leader {leaderSphere :: Sphere} deriving (Show, Eq, Ord)
+newtype Leader = Leader {_leaderSphere :: Sphere} deriving (Show, Eq, Ord)
 
-data PlayingState = PlayingState {turnOrder :: [Dynasty], game :: Game} deriving (Show)
+data PlayingState = PlayingState {_turnOrder :: [Dynasty], _game :: Game} deriving (Show)
 
 type PlayerInfos = Map Dynasty PlayerInfo
 
-data Game = Game {bag :: [Tile], players :: Map Dynasty PlayerInfo, board :: Board} deriving (Show)
+data Game = Game {_bag :: [Tile], _players :: Map Dynasty PlayerInfo, _board :: Board} deriving (Show)
 
-data Board = Board {numberOfTreasuresLeft :: Int, leaderPositions :: LeaderPositions, grid :: Grid } deriving Show
+data Board = Board {_numberOfTreasuresLeft :: Int, _leaderPositions :: LeaderPositions, _grid :: Grid } deriving Show
 
 type Grid = Map Position Space
 
 type LeaderPositions = Map (Dynasty, Leader) Position
 
-data PlayerInfo = PlayerInfo {score :: Score, hand :: Bag Tile, catastropheTiles :: Int} deriving Show
+data PlayerInfo = PlayerInfo {_score :: Score, _hand :: Bag Tile, _catastropheTiles :: Int} deriving Show
 
-data Space = Space {marking :: Marking, placedPiece :: Maybe PlacedPiece} deriving Show
+data Space = Space {_marking :: Marking, _placedPiece :: Maybe PlacedPiece} deriving Show
 
 data PlacedPiece = PlacedLeader Leader deriving Show
 
@@ -71,3 +89,11 @@ data Pass
 data Action = PositionLeader Leader LeaderPosition | PlaceTile | PlayCatastrophe | ReplaceTiles Hand | Pass
 data LeaderPosition = OffBoard | OnBoard Position
 data Position = Position deriving (Show, Eq, Ord)
+
+makeLenses ''Tile
+makeLenses ''Leader
+makeLenses ''PlayingState
+makeLenses ''Game
+makeLenses ''Board
+makeLenses ''PlayerInfo
+makeLenses ''Space

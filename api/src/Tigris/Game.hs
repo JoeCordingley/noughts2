@@ -26,6 +26,7 @@ module Tigris.Game
   )
 where
 
+import Control.Lens
 import Control.Monad.Random.Lazy
 import Control.Arrow (first)
 import Control.Monad.Except (ExceptT (..), runExceptT, liftEither)
@@ -34,30 +35,24 @@ import qualified Data.Map as Map
 import System.Random.Shuffle (shuffleM)
 import Data.Bool (bool)
 import Data.List (sort)
-import Control.Monad.State (StateT(..))
+import Control.Monad.State (StateT(..), runStateT)
 import Data.Monoid (Sum(..))
 import Data.Maybe (fromJust)
-import Data.Functor.Identity (Identity(..))
 import Tigris.Data
 
 
 startingPlayerInfo :: Hand -> PlayerInfo
-startingPlayerInfo startingHand = PlayerInfo{score = startingScore, hand = startingHand, catastropheTiles = 2}
+startingPlayerInfo startingHand = PlayerInfo{_score = startingScore, _hand = startingHand, _catastropheTiles = 2}
 
 
 one :: a -> Bag a 
 one a = Map.singleton a (Sum 1)
 
-boardLeaderPositions :: Functor f => (LeaderPositions -> f LeaderPositions) -> Board -> f Board
-boardLeaderPositions f board = g <$> f (leaderPositions board) where
-  g leaderPositions = board{leaderPositions}
-
-
 startingBoard :: Board
-startingBoard = Board {numberOfTreasuresLeft = 10}
+startingBoard = Board {_numberOfTreasuresLeft = 10, _leaderPositions = Map.empty, _grid = Map.empty}
 
 allCivilizationTiles :: Bag Tile
-allCivilizationTiles = Map.fromList $ map (first Tile) [(Temples, 57), (Markets, 30), (Settlements, 30), (Farms,  36)] where
+allCivilizationTiles = Map.fromList $ map (first Tile) [(Temples, 57), (Markets, 30), (Settlements, 30), (Farms,  36)]
 
 tilesMinusStartingTemples :: Bag Tile
 tilesMinusStartingTemples = allCivilizationTiles <> Map.singleton (Tile Temples) (-10)
@@ -73,9 +68,9 @@ emptyHand = Map.fromList $ map (first Tile) allSpheresZero
 setupGame :: (MonadRandom m) => Map Dynasty a -> m PlayingState
 setupGame m = fromShuffled <$> shuffleM dynasties <*> shuffleM (bagToList tilesMinusStartingTemples)
   where
-    fromShuffled dynasties' tiles = PlayingState {turnOrder = cycle dynasties, game = startingGame} where
-      startingGame = Game {bag = remainingTiles, players = fmap startingPlayerInfo startingPlayerHand, board = startingBoard}
-      (startingPlayerHand, remainingTiles) = fromJust $ state traverse dealUpToSix (emptyHands, tiles)
+    fromShuffled dynasties' tiles = PlayingState {_turnOrder = cycle dynasties, _game = startingGame} where
+      startingGame = Game {_bag = remainingTiles, _players = fmap startingPlayerInfo startingPlayerHand, _board = startingBoard}
+      (startingPlayerHand, remainingTiles) = fromJust $ runStateT (emptyHands & traverse %%~ dealUpToSix) tiles
       emptyHands = Map.fromList $ map (,emptyHand) dynasties'
     dynasties = Map.keys m
 
@@ -94,7 +89,7 @@ spheres :: [Sphere]
 spheres = [Settlements, Temples, Farms, Markets]
 
 playGame :: Monad m => (Winners -> m a) -> (PlayingState -> m a) -> PlayingState -> m a
-playGame finish recurse (PlayingState (player : subsequentPlayers) game) = playTurn (getTurn getAction) player game >>= either finish (recurse . PlayingState subsequentPlayers)
+playGame finish recurse (PlayingState (player : subsequentPlayers) game') = playTurn (getTurn getAction) player game' >>= either finish (recurse . PlayingState subsequentPlayers)
 
 
 getAction :: Dynasty -> Game -> f Action
@@ -110,69 +105,42 @@ twice :: Monad f => (a -> f a) -> (a -> f a)
 twice f = f >=> f
 
 orDetermineWinners :: (Game -> Maybe Game) -> Game -> Either Winners Game
-orDetermineWinners f game = maybe (Left . winners . fmap score $ players game) Right $ f game
+orDetermineWinners f game' = maybe (Left . winners . fmap (view score) $ view players game') Right $ f game'
 
 maybeEndGame :: Game -> Either Winners Game
 maybeEndGame = orDetermineWinners continueGame
 
 continueGame :: Game -> Maybe Game
-continueGame game = bool Just (const Nothing) (isFinished $ board game) game
+continueGame game' = bool Just (const Nothing) (isFinished $ view board game') game'
 
 isFinished :: Board -> Bool
-isFinished board = numberOfTreasuresLeft board <= 2
+isFinished board' = view numberOfTreasuresLeft board' <= 2
 
 getTurn :: Functor f => (Dynasty -> Game -> f Action) -> Dynasty -> Game -> f (Either Game (Either Winners Game))
-getTurn f dynasty game = flip g game <$> f dynasty game where
+getTurn f dynasty game' = flip g game' <$> f dynasty game' where
   g Pass = Left 
-  g (ReplaceTiles hand) = Right . (orDetermineWinners . playerAndBag $ state (at dynasty . traverse . playerHand)  dealUpToSix)
-  g (PositionLeader leader leaderPosition) = Right . Right . case leaderPosition of
-    OffBoard -> over gameBoard $ placeLeaderOffBoard dynasty leader Nothing
+  g (ReplaceTiles hand') = Right . orDetermineWinners (playerAndBag (\ (ps, b) -> runStateT (ps & at dynasty . traverse . hand %%~ dealUpToSix) b))
+  g (PositionLeader leader leaderPosition) = (Right . Right) . case leaderPosition of
+    OffBoard -> over board (placeLeaderOffBoard dynasty leader Nothing)
     OnBoard position -> undefined
 
 placeLeaderOffBoard :: Dynasty -> Leader -> Maybe Position -> Board -> Board
--- placeLeaderOffBoard dynasty leader maybePosition = uncurry (maybe id removeFromGrid) . (boardLeaderPositions . at (dynasty, leader)) (, maybePosition) where
-placeLeaderOffBoard dynasty leader newPosition = uncurry (over boardGrid . moveLeader )  . (boardLeaderPositions . at (dynasty, leader)) (, newPosition) where
-  moveLeader oldPosition = maybe id addToGrid newPosition . maybe id removeFromGrid oldPosition
-  removeFromGrid position = over (at position) (const Nothing) 
-  addToGrid position = over (at position) undefined
-
-gameBoard :: Functor f => (Board -> f Board) -> Game -> f Game
-gameBoard f game = g <$> f (board game) where
-  g board = game{board}
-
-boardGrid :: Functor f => (Grid -> f Grid) -> Board -> f Board
-boardGrid f board = g <$> f (grid board) where
-  g grid = board{grid}
-
-replace :: ((a -> (a, b)) -> s -> (a,t)) -> (a -> b) -> s -> (a, t)
-replace l f = l g where
-  g a = (a, f a)
-
-over :: ((a -> Identity b) -> s -> Identity t) -> (a -> b) -> s -> t
-over l f = runIdentity . l (Identity . f)
-
-set :: ((a -> Identity b) -> s -> Identity t) -> b -> s -> t
-set l = over l . const 
+placeLeaderOffBoard dynasty leader newPosition board' = 
+  let (oldPosition, board'') = board' & leaderPositions . at (dynasty, leader) <<.~ newPosition
+  in board'' & grid %~ moveLeader oldPosition
+  where
+    moveLeader oldPosition = maybe id addToGrid newPosition . maybe id removeFromGrid oldPosition
+    removeFromGrid position = at position . _Just . placedPiece .~ Nothing
+    addToGrid position = at position . _Just . placedPiece .~ (Just $ PlacedLeader leader)
 
 endTurn :: Game -> Either Winners Game
-endTurn = orDetermineWinners . playerAndBag $ state (traverse . playerHand) dealUpToSix
+endTurn = orDetermineWinners (playerAndBag (\(ps, b) -> runStateT (ps & traverse . hand %%~ dealUpToSix) b))
 
-state :: ((a -> StateT st f b) -> s -> StateT st f t) -> (a -> StateT st f b) -> (s, st) -> f (t, st)
-state l f (s, st) = runStateT (l f s) st
 
 dealUpToSix :: Hand -> StateT [Tile] Maybe Hand
 dealUpToSix playerTiles = foldr (>=>) pure (replicate (6 - length playerTiles) (StateT . dealOne)) playerTiles where
-  dealOne playerTiles (x:xs) = Just (one x <> playerTiles, xs)
+  dealOne playerTiles' (x:xs) = Just (one x <> playerTiles', xs)
   dealOne _ [] = Nothing
 
 playerAndBag :: Functor f => ((PlayerInfos, [Tile]) -> f (PlayerInfos, [Tile])) -> Game -> f Game
-playerAndBag f game = uncurry g <$> f (players game, bag game) where
-  g players bag = game{players, bag}
-
-playerHand :: Functor f => (Hand -> f Hand) -> PlayerInfo -> f PlayerInfo
-playerHand f playerInfo = fmap g . f $ hand playerInfo where
-  g hand = playerInfo{hand}
-
-at :: (Ord k, Functor f) => k -> (Maybe v -> f (Maybe v)) -> Map k v -> f (Map k v)
-at d f = Map.alterF f d
-
+playerAndBag f game' = (\(_players, _bag) -> game'{_players, _bag}) <$> f (_players game', _bag game')
