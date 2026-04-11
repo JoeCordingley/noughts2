@@ -16,9 +16,7 @@ module Tigris.Game
     Hand,
     Score,
     Winners,
-    Pass,
     Action (..),
-    LeaderPosition (..),
     Position (..),
     setupGame,
     playTurn,
@@ -39,11 +37,11 @@ import Control.Monad.State (StateT(..), runStateT)
 import Data.Monoid (Sum(..))
 import Data.Maybe (fromJust)
 import Tigris.Data
+import Control.Applicative ((<|>))
 
 
 startingPlayerInfo :: Hand -> PlayerInfo
 startingPlayerInfo startingHand = PlayerInfo{_score = startingScore, _hand = startingHand, _catastropheTiles = 2}
-
 
 one :: a -> Bag a 
 one a = Map.singleton a (Sum 1)
@@ -60,7 +58,6 @@ tilesMinusStartingTemples = allCivilizationTiles <> Map.singleton (Tile Temples)
 bagToList :: Bag a -> [a]
 bagToList = Map.foldrWithKey f [] where
   f k (Sum n) ts = replicate n k <> ts
-
 
 emptyHand :: Hand
 emptyHand = Map.fromList $ map (first Tile) allSpheresZero
@@ -117,18 +114,44 @@ isFinished :: Board -> Bool
 isFinished board' = view numberOfTreasuresLeft board' <= 2
 
 getTurn :: Functor f => (Dynasty -> Game -> f Action) -> Dynasty -> Game -> f (Either Game (Either Winners Game))
-getTurn f dynasty game' = flip g game' <$> f dynasty game' where
-  g Pass = Left 
-  g (ReplaceTiles hand') = Right . (orDetermineWinners . playerAndBag $ state (at dynasty . traverse . hand) dealUpToSix)
-  g (PositionLeader leader leaderPosition) = (Right . Right) . case leaderPosition of
-    OffBoard -> over board (placeLeaderOffBoard dynasty leader Nothing)
-    OnBoard position -> undefined
+getTurn getAction dynasty game' = flip applyAction game' <$> getAction dynasty game' where
+  applyAction Pass = Left 
+  applyAction (ReplaceTiles discards) = Right . (orDetermineWinners . playerAndBag $ state (at dynasty . traverse . hand) $ dealUpToSix . (<>) discards)
+  applyAction (PositionLeader sphere leaderPosition) = Right . resolveRevolts . (over board $ placeLeader (Leader dynasty sphere) leaderPosition) where
+    resolveRevolts :: Game -> Either Winners Game
+    resolveRevolts game = case leaderPosition of
+      Nothing -> Right game
+      Just position -> case opposingLeader' $ view (board . grid ) game of
+        Just opposingDynasty -> resolveRevolt opposingDynasty
+        Nothing -> Right game
+      where
+        opposingLeader' grid = leaderPosition >>= flip (opposingLeader sphere) grid
+  applyAction (PlaceTile sphere position) = Right . Right . (set (board . grid . at position . traverse . placedPiece) . Just $ PlacedTile sphere)
 
-placeLeaderOffBoard :: Dynasty -> Leader -> Maybe Position -> Board -> Board
-placeLeaderOffBoard dynasty leader newPosition = uncurry (over grid . moveLeader )  . (leaderPositions . at (dynasty, leader)) (, newPosition) where
+resolveRevolt :: Dynasty -> Either Winners Game
+resolveRevolt = undefined
+
+opposingLeader :: Sphere -> Position -> Grid -> Maybe Dynasty
+opposingLeader sphere position = firstJust matchingLeader . view (at position . traverse . leaders)
+
+firstJust :: Foldable f => (a -> Maybe b) -> f a -> Maybe b
+firstJust f = foldr ((<|>) . f) Nothing
+
+matchingLeader :: Leader -> Maybe Dynasty
+matchingLeader = undefined
+
+view2 :: ((a -> Const a b) -> s -> Const a t) -> s -> a
+view2 l = getConst . l Const 
+
+
+x :: Monoid a => [a] -> a
+x = view2 traverse
+
+placeLeader :: Leader -> Maybe Position -> Board -> Board
+placeLeader leader newPosition = uncurry (over grid . moveLeader )  . (leaderPositions . at leader) (, newPosition) where
   moveLeader oldPosition = maybe id addToGrid newPosition . maybe id removeFromGrid oldPosition
-  removeFromGrid position = over (at position) (const Nothing)
-  addToGrid position = over (at position) undefined
+  removeFromGrid position = set (at position . traverse . placedPiece)  Nothing
+  addToGrid position = set (at position. traverse . placedPiece) . Just $ PlacedLeader leader
 
 endTurn :: Game -> Either Winners Game
 endTurn = orDetermineWinners . playerAndBag $ state (traverse . hand) dealUpToSix

@@ -56,9 +56,6 @@ data GameResult
 play :: GameTVars GameState a -> PlayingState -> IO ()
 play game = void . updateWithNotify (playGame (pure . pure)) (notify game . Playing)
 
-getTurn :: Dynasty -> Game -> f (Either Pass Game)
-getTurn = undefined
-
 data GameState = SeatingPlayers DynastyMap | Playing PlayingState deriving (Show)
 
 gameHtml :: GameState -> Player -> Html ()

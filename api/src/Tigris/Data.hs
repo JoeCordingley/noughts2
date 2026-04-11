@@ -15,6 +15,7 @@ module Tigris.Data
     Game (..),
     bag,
     players,
+    leaders,
     board,
     Board (..),
     numberOfTreasuresLeft,
@@ -35,9 +36,7 @@ module Tigris.Data
     Hand,
     Score,
     Winners,
-    Pass,
     Action (..),
-    LeaderPosition (..),
     Position (..),
   )
 where
@@ -54,7 +53,7 @@ data Dynasty = Archer | Bull | Pot | Lion deriving (Eq, Ord, Generic, Show)
 instance FromJSON Dynasty
 instance ToJSON Dynasty
 
-newtype Leader = Leader {_leaderSphere :: Sphere} deriving (Show, Eq, Ord)
+data Leader = Leader {_leaderDynasty :: Dynasty, _leaderSphere :: Sphere} deriving (Show, Eq, Ord)
 
 data PlayingState = PlayingState {_turnOrder :: [Dynasty], _game :: Game} deriving (Show)
 
@@ -66,13 +65,13 @@ data Board = Board {_numberOfTreasuresLeft :: Int, _leaderPositions :: LeaderPos
 
 type Grid = Map Position Space
 
-type LeaderPositions = Map (Dynasty, Leader) Position
+type LeaderPositions = Map Leader Position
 
 data PlayerInfo = PlayerInfo {_score :: Score, _hand :: Bag Tile, _catastropheTiles :: Int} deriving Show
 
-data Space = Space {_marking :: Marking, _placedPiece :: Maybe PlacedPiece} deriving Show
+data Space = Space {_marking :: Marking, _placedPiece :: Maybe PlacedPiece, _leaders :: [Leader]} deriving Show
 
-data PlacedPiece = PlacedLeader Leader deriving Show
+data PlacedPiece = PlacedLeader Leader | PlacedTile Sphere deriving Show
 
 data Marking = Sand | River | Temple {specialBorder :: Bool} deriving Show
 
@@ -84,10 +83,7 @@ type Score = Map Sphere (Sum Int)
 
 type Winners = [Dynasty]
 
-data Pass
-
-data Action = PositionLeader Leader LeaderPosition | PlaceTile | PlayCatastrophe | ReplaceTiles Hand | Pass
-data LeaderPosition = OffBoard | OnBoard Position
+data Action = PositionLeader Sphere (Maybe Position) | PlaceTile Sphere Position | PlayCatastrophe | ReplaceTiles Hand | Pass
 data Position = Position deriving (Show, Eq, Ord)
 
 makeLenses ''Tile
