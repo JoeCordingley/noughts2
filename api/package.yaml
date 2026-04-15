@@ -49,6 +49,7 @@ dependencies:
 - MonadRandom
 - attoparsec
 - transformers
+- array
 
 ghc-options:
 - -Wall

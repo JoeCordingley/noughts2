@@ -50,6 +50,7 @@ library
   build-depends:
       MonadRandom
     , aeson
+    , array
     , async
     , attoparsec
     , base >=4.7 && <5
@@ -91,6 +92,7 @@ executable tigris-api-exe
   build-depends:
       MonadRandom
     , aeson
+    , array
     , async
     , attoparsec
     , base >=4.7 && <5
@@ -136,6 +138,7 @@ test-suite tigris-api-test
       HUnit
     , MonadRandom
     , aeson
+    , array
     , async
     , attoparsec
     , base >=4.7 && <5

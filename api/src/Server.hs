@@ -14,10 +14,10 @@ runServer = do
   run 8080 (serve (Proxy :: Proxy Api) server)
 
 startServer :: IO (Server Api)
-startServer = joinHandlers <$> Tigris.gameServer <*> Chess.gameServer
+startServer = joinHandlers <$> Tigris.gameServer 
   where
-    joinHandlers tigris chess = serveGames :<|> serveDirectoryWebApp "static"
+    joinHandlers tigris = serveGames :<|> serveDirectoryWebApp "static"
       where
         serveGames Tigris = tigris
         serveGames Noughts = undefined
-        serveGames Chess = chess
+        serveGames Chess = undefined

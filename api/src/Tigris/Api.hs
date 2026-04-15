@@ -11,7 +11,7 @@
 
 module Tigris.Api (Dynasty, gameServer) where
 
-import BasicPrelude
+import BasicPrelude 
 import Control.Concurrent.STM (newTVarIO)
 import Control.Monad.Random.Lazy
 import qualified Data.Map as Map
@@ -19,11 +19,14 @@ import GHC.Generics (Generic)
 import Lib
 import Lucid (term, toHtml)
 import Lucid.Base (Html)
-import Lucid.Html5
+import Lucid.Html5 hiding (for_) 
 import Tigris.Game
 import Data.Aeson (FromJSON, ToJSON)
 import Servant (Server)
 import Api (GameApi, actionsApi, responses, paths)
+import Debug.Trace
+import Control.Lens
+import Data.Array (bounds)
 
 gameServer :: IO (Server GameApi)
 gameServer = actionsApi (responses $ paths Tigris) <$> tigrisActions
@@ -31,7 +34,7 @@ gameServer = actionsApi (responses $ paths Tigris) <$> tigrisActions
 tigrisActions :: IO Actions
 tigrisActions = actions (newGame openingState) hostGame (table $ flip gameHtml) <$> newTVarIO Map.empty
   where
-    hostGame game = play game =<< evalRandIO . setupGame =<< seatPlayers game
+    hostGame game = uncurry (play game) =<< evalRandIO . setupGame =<< seatPlayers game
 
 openingState :: GameState
 openingState = SeatingPlayers Map.empty
@@ -53,19 +56,26 @@ atLeastTwo playerMap = Map.size playerMap >= 2
 
 data GameResult
 
-play :: GameTVars GameState a -> PlayingState -> IO ()
-play game = void . updateWithNotify (playGame (pure . pure)) (notify game . Playing)
+play :: GameTVars GameState a -> [Dynasty] -> PlayingState -> IO ()
+play game dynasties = void . updateWithNotify (playGame (pure . pure)) (notify game . Playing dynasties)
 
-data GameState = SeatingPlayers DynastyMap | Playing PlayingState deriving (Show)
+data GameState = SeatingPlayers DynastyMap | Playing [Dynasty] PlayingState deriving (Show)
 
 gameHtml :: GameState -> Player -> Html ()
 gameHtml (SeatingPlayers map) = chooseDynasty map
-gameHtml (Playing dynasties) = boardHtml dynasties
+gameHtml (Playing dynasties playingState) = playingHtml dynasties playingState 
 
-boardHtml :: PlayingState -> Player -> Html ()
-boardHtml (PlayingState {_turnOrder}) player = div_ [id_ "board"] $ forM_ _turnOrder dynastyDiv
-  where
-    dynastyDiv dynasty = div_ $ toHtml $ show dynasty
+playingHtml :: [Dynasty] -> PlayingState -> Player -> Html ()
+playingHtml  _ (PlayingState _ _ game) _ = div_ [id_ "board"] $ boardHtml $ view (board . grid) game where
+  boardHtml :: Grid -> Html ()
+  boardHtml grid = table_ $ for_ [rowMin..rowMax] $ \row -> 
+    tr_ $ for_ [columnMin..columnMax] $ \column -> 
+      td_ $ toHtml "square"
+    where
+      ((rowMin, columnMin), (rowMax, columnMax)) = bounds grid
+--boardHtml (PlayingState _ (Game {_turnOrder})) player = div_ [id_ "board"] $ forM_ _turnOrder dynastyDiv
+--  where
+--    dynastyDiv dynasty = div_ $ toHtml $ show dynasty
 
 chooseDynasty :: DynastyMap -> Player -> Html ()
 chooseDynasty playerMap thisPlayer =
