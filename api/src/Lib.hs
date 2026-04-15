@@ -4,6 +4,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Lib (ChooseRoleHtml, NoughtOrCross, PlayerId(..), keepAlive, sendHtml, encodeToText, recursing, GameId, Actions(..), Player(..), returning, Table(..), GameTVars(..), GameKey(..), actions, newGame, table, updateWithNotify, nextMessageFromAnyPlayer, notify, WebSocketContainer(..)) where
 
@@ -114,35 +115,35 @@ notify game state = do
   writeTVar (latestState game) $ state
 
 updateWithNotify :: ((a -> STM (IO b)) -> a -> STM (IO b)) -> (a -> STM ()) -> a -> IO b
-updateWithNotify update notify = (fixAtomically $ update . notifying) <=< returning (atomically . notify)
+updateWithNotify update notify' = (fixAtomically $ update . notifying) <=< returning (atomically . notify')
   where
-    notifying recurse = returning notify >=> recurse
+    notifying recurse = returning notify' >=> recurse
 
 actions :: (Player -> STM game) -> (game -> IO ()) -> (game -> Table) -> TVar (Map GameId game) -> Actions
-actions newGame hostGame table gameMap = Actions {createGame, newPlayerId, getGame}
+actions newGame' hostGame table' gameMap = Actions {createGame, newPlayerId, getGame}
   where
     newPlayerId = PlayerId <$> generateId
     createGame player = do
       gameId <- generateGameId
-      game <- atomically $ returning (modifyTVar gameMap . Map.insert gameId) =<< newGame player
-      forkIO $ hostGame game
+      game <- atomically $ returning (modifyTVar gameMap . Map.insert gameId) =<< newGame' player
+      _ <- forkIO $ hostGame game
       pure gameId
-    getGame gameId = (fmap table . Map.lookup gameId) <$> readTVarIO gameMap
+    getGame gameId = (fmap table' . Map.lookup gameId) <$> readTVarIO gameMap
 
 newGame :: state -> Player -> STM (GameTVars state input)
 newGame openingState player = do
-  notify <- newTVar []
+  notify' <- newTVar []
   ps <- newTVar []
   latestState <- newTVar openingState
   names <- newTVar $ Map.singleton (playerId player) player
-  return GameTVars {latestState = latestState, playerOutputs = notify, playerInputs = ps, waitForFinish = forever $ threadDelay 10000, playerNames = names}
+  return GameTVars {latestState = latestState, playerOutputs = notify', playerInputs = ps, waitForFinish = forever $ threadDelay 10000, playerNames = names}
 
-table :: (Show input, FromJSON input, Show state) => (Player -> state -> Html ()) -> GameTVars state input -> Table
+table :: FromJSON input => (Player -> state -> Html ()) -> GameTVars state input -> Table
 table playerView tvars = Table {addPlayer, connectGame, tablePlayer}
   where
     addPlayer player = atomically $ addPlayerSTM player
     addPlayerSTM player = flip modifyTVar' (Map.insert (playerId player) player) $ playerNames tvars
-    tablePlayer id = atomically . fmap (Map.lookup id) . readTVar $ playerNames tvars
+    tablePlayer id' = atomically . fmap (Map.lookup id') . readTVar $ playerNames tvars
     connectGame player connection = do
       putStrLn "connected"
       outputQueue <- newTQueueIO

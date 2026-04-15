@@ -11,5 +11,5 @@ gameServer = actionsApi (responses $ paths Chess) <$> chessActions
 chessActions :: IO Actions
 chessActions = undefined
 
-openingState :: (Maybe Player, Maybe Player)
-openingState = (Nothing, Nothing)
+--openingState :: (Maybe Player, Maybe Player)
+--openingState = (Nothing, Nothing)

@@ -24,7 +24,6 @@ import Tigris.Game
 import Data.Aeson (FromJSON, ToJSON)
 import Servant (Server)
 import Api (GameApi, actionsApi, responses, paths)
-import Debug.Trace
 import Control.Lens
 import Data.Array (bounds)
 
@@ -62,17 +61,17 @@ play game dynasties = void . updateWithNotify (playGame (pure . pure)) (notify g
 data GameState = SeatingPlayers DynastyMap | Playing [Dynasty] PlayingState deriving (Show)
 
 gameHtml :: GameState -> Player -> Html ()
-gameHtml (SeatingPlayers map) = chooseDynasty map
+gameHtml (SeatingPlayers m) = chooseDynasty m
 gameHtml (Playing dynasties playingState) = playingHtml dynasties playingState 
 
 playingHtml :: [Dynasty] -> PlayingState -> Player -> Html ()
 playingHtml  _ (PlayingState _ _ game) _ = div_ [id_ "board"] $ boardHtml $ view (board . grid) game where
   boardHtml :: Grid -> Html ()
-  boardHtml grid = table_ $ for_ [rowMin..rowMax] $ \row -> 
-    tr_ $ for_ [columnMin..columnMax] $ \column -> 
-      td_ $ toHtml "square"
+  boardHtml grid' = table_ $ for_ [rowMin..rowMax] $ \_ -> 
+    tr_ $ for_ [columnMin..columnMax] $ \_ -> 
+      td_ $ toHtml ("square" :: Text)
     where
-      ((rowMin, columnMin), (rowMax, columnMax)) = bounds grid
+      ((rowMin, columnMin), (rowMax, columnMax)) = bounds grid'
 --boardHtml (PlayingState _ (Game {_turnOrder})) player = div_ [id_ "board"] $ forM_ _turnOrder dynastyDiv
 --  where
 --    dynastyDiv dynasty = div_ $ toHtml $ show dynasty
@@ -91,22 +90,22 @@ chooseDynasty playerMap thisPlayer =
     dynastyDiv dynasty = div_ ([class_ "dynasty-box"] ++ if isMine then [class_ "mine"] else []) $ do
       strong_ . toHtml $ show dynasty
       small_ $ toHtml status
-      span_ [class_ "button-area"] $ unless isTaken $ button_ [class_ "dynasty action", term "hx-vals" jsonVal, term "ws-send" mempty] "Choose"
+      span_ [class_ "button-area"] $ unless isTaken $ button_ [class_ "dynasty action", term "hx-vals" chooseDynastyJson, term "ws-send" mempty] "Choose"
       where
         (isTaken, isMine, status) = case Map.lookup dynasty playerMap of
           Just player -> (True, player == thisPlayer, "Player: " <> playerName player)
           Nothing -> (False, False, "Available")
-        jsonVal = encodeToText $ ChooseDynasty dynasty
+        chooseDynastyJson = encodeToText $ ChooseDynasty dynasty
 
 type DynastyMap = Map Dynasty Player
 
 data SetupMessage = TakePosition Player Dynasty | Start deriving (Generic, Show)
 
 setupMessage :: Player -> PlayerSetupMessage -> SetupMessage
-setupMessage player (ChooseDynasty a) = TakePosition player a
+setupMessage player (ChooseDynasty dynasty) = TakePosition player dynasty 
 setupMessage _ StartGame = Start
 
-data PlayerSetupMessage = ChooseDynasty {position :: Dynasty} | StartGame deriving (Generic, Show)
+data PlayerSetupMessage = ChooseDynasty Dynasty | StartGame deriving (Generic, Show)
 
 instance FromJSON PlayerSetupMessage
 

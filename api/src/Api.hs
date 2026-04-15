@@ -88,13 +88,13 @@ actionsApi (Responses {createGamePage, createGameResponse, knownPlayerResponse, 
           playerId <- newPlayerId
           gameId <- createGame $ Player playerId name
           return $ createGameResponse gameId playerId
-    gameEndpoints id = withGame . const . gameHandler :<|> withGame . joinGameHandler :<|> withGame .: playGameHandler
+    gameEndpoints id' = withGame . const . gameHandler :<|> withGame . joinGameHandler :<|> withGame .: playGameHandler
       where
         gameHandler maybeCookies = do
-          return . bool (unknownPlayerResponse id) (knownPlayerResponse id) . isJust $ playerIdCookie =<< maybeCookies
-        withGame f = maybe (throwError err400) f =<< (liftIO $ getGame id)
+          return . bool (unknownPlayerResponse id') (knownPlayerResponse id') . isJust $ playerIdCookie =<< maybeCookies
+        withGame f = maybe (throwError err400) f =<< (liftIO $ getGame id')
         joinGameHandler formData game =
-          maybe (throwError err400) (return . joinGameResponse id)
+          maybe (throwError err400) (return . joinGameResponse id')
             =<< liftIO (traverse joinGame $ lookup "name" formData)
           where
             joinGame name = returning addPlayer' =<< newPlayerId where
@@ -138,10 +138,10 @@ responses (Paths {getGamePath, getPlayPath, getJoinGamePath, createGameApi}) = R
     createGameResponse gameId playerId =
       addHeader (getGamePath gameId) $ addPlayerIdCookie (getGamePath gameId) playerId NoContent
     websocketDiv :: GameId -> Html ()
-    websocketDiv id = div_ [id_ "game", term "hx-ext" "ws", term "ws-connect" (getPlayPath id)] $ div_ [id_ "board"] $ return ()
+    websocketDiv id' = div_ [id_ "game", term "hx-ext" "ws", term "ws-connect" (getPlayPath id')] $ div_ [id_ "board"] $ return ()
     knownPlayerResponse = htmxPage . websocketDiv
     unknownPlayerResponse :: GameId -> Html ()
-    unknownPlayerResponse id = htmxPage $ form_ [term "hx-post" $ getJoinGamePath id] $ do
+    unknownPlayerResponse id' = htmxPage $ form_ [term "hx-post" $ getJoinGamePath id'] $ do
       input_ [id_ "name", name_ "name", type_ "text"]
       button_ [type_ "submit"] "Join"
     joinGameResponse gameId playerId = addPlayerIdCookie (getGamePath gameId) playerId (websocketDiv gameId)

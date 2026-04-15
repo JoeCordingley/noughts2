@@ -14,7 +14,6 @@ import BasicPrelude
 import Control.Concurrent (MVar, forkIO, newEmptyMVar, putMVar, readMVar, takeMVar)
 import Control.Lens
 import Data.Aeson (FromJSON (..), ToJSON, decode)
-import qualified Data.Map as Map
 import Data.Semigroup
 import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
@@ -168,13 +167,13 @@ data Activity = Active ThisOrOtherPlayer | Ended ClientResult
 type SendMessage f = Update -> f ()
 
 play :: (Monad f) => SendMessage f -> GetMove f -> f FinishedGame
-play notify getMove = do
+play notify' getMove = do
   result <- fixPlay (recursing notifyPlaying . playUnfixed getMove)
   notifyResult result
   return result
   where
-    notifyPlaying (GameInPlay player board) = notify . Update board $ Unfinished player
-    notifyResult (FinishedGame board result) = notify . Update board $ FinishedStatus result
+    notifyPlaying (GameInPlay player board) = notify' . Update board $ Unfinished player
+    notifyResult (FinishedGame board result) = notify' . Update board $ FinishedStatus result
 
 gridForWinningLine :: WinningLine -> Grid Bool
 gridForWinningLine = foldr f emptyWonGrid
@@ -187,14 +186,8 @@ instance ToJSON MoveKey
 
 instance FromJSON MoveKey
 
-chooseRoleNoughts :: ChooseRoleHtml NoughtOrCross
-chooseRoleNoughts = undefined
 
 
 -- GameServerDependencies Noughts playNoughts isReadyNoughts chooseRoleNoughts
 
-playNoughts :: Map NoughtOrCross PlayerId -> IO ()
-playNoughts playerMap = undefined
 
-isReadyNoughts :: Map NoughtOrCross PlayerId -> Bool
-isReadyNoughts playerMap = Map.size playerMap >= 2

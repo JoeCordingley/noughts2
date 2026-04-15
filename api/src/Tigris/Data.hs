@@ -33,14 +33,18 @@ module Tigris.Data
     Score,
     Winners,
     Action (..),
-    Position (..),
+    Position ,
     Interaction (..),
     ActionNumber (..),
     PlayingState(..),
     RevoltDetails(..),
     Region,
     Interactions (..),
-    startingBoard
+    startingBoard,
+    leaderDynasty,
+    regions,
+    slot,
+    area,
   )
 where
 
@@ -61,7 +65,7 @@ instance FromJSON Dynasty
 instance ToJSON Dynasty
 
 startingBoard :: Board
-startingBoard = Board {_numberOfTreasuresLeft = 10, _leaderPositions = Map.empty, _grid = startingGrid}
+startingBoard = Board {_numberOfTreasuresLeft = 10, _leaderPositions = Map.empty, _grid = startingGrid, _regions = Map.empty}
 
 startingGrid :: Grid
 startingGrid = array ((1,1), (11,16)) []

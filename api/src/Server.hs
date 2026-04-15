@@ -3,7 +3,6 @@ module Server (runServer) where
 import Servant
 import Api (Api)
 import Lib
-import qualified Chess.Api as Chess
 import qualified Tigris.Api as Tigris
 import Network.Wai.Handler.Warp (run)
 
