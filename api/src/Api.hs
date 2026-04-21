@@ -122,7 +122,7 @@ htmxPage content = html_ $ do
     meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
     script_ [src_ "https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js"] ("" :: Text)
     script_ [src_ "https://cdn.jsdelivr.net/npm/htmx-ext-ws@2.0.4"] ("" :: Text)
-    link_ [rel_ "stylesheet", href_ "/static/css/dynasty.css"]
+    link_ [rel_ "stylesheet", href_ "/static/css/dynasty.css?v=2"]
   body_ content
 
 responses :: Paths -> Responses

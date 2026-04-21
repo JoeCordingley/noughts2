@@ -50,6 +50,7 @@ dependencies:
 - attoparsec
 - transformers
 - array
+- foreign-store
 
 ghc-options:
 - -Wall

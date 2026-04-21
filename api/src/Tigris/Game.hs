@@ -20,7 +20,11 @@ module Tigris.Game
     playGame,
     PlayingState(..),
     board,
-    grid
+    grid,
+    marking,
+    slot,
+    Sphere(..),
+    Piece(..)
   )
 where
 

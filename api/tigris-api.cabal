@@ -61,6 +61,7 @@ library
     , containers
     , cookie
     , dani-servant-lucid2
+    , foreign-store
     , http-media
     , lens
     , lucid2
@@ -103,6 +104,7 @@ executable tigris-api-exe
     , containers
     , cookie
     , dani-servant-lucid2
+    , foreign-store
     , http-media
     , lens
     , lucid2
@@ -149,6 +151,7 @@ test-suite tigris-api-test
     , containers
     , cookie
     , dani-servant-lucid2
+    , foreign-store
     , http-media
     , lens
     , lucid2

@@ -12,12 +12,14 @@
 module Tigris.Api (Dynasty, gameServer) where
 
 import BasicPrelude 
-import Control.Concurrent.STM (newTVarIO)
+import Control.Concurrent (forkIO)
+import Control.Concurrent.STM (newTVarIO, readTVarIO)
+import Foreign.Store (lookupStore, readStore, newStore)
 import Control.Monad.Random.Lazy
 import qualified Data.Map as Map
 import GHC.Generics (Generic)
 import Lib
-import Lucid (term, toHtml)
+import Lucid (term, toHtml, Attributes)
 import Lucid.Base (Html)
 import Lucid.Html5 hiding (for_) 
 import Tigris.Game
@@ -25,21 +27,38 @@ import Data.Aeson (FromJSON, ToJSON)
 import Servant (Server)
 import Api (GameApi, actionsApi, responses, paths)
 import Control.Lens
-import Data.Array (bounds)
 
 gameServer :: IO (Server GameApi)
 gameServer = actionsApi (responses $ paths Tigris) <$> tigrisActions
 
 tigrisActions :: IO Actions
-tigrisActions = actions (newGame openingState) hostGame (table $ flip gameHtml) <$> newTVarIO Map.empty
+tigrisActions = do
+  mStore <- lookupStore 0
+  tvar <- case mStore of
+    Just store -> readStore store
+    Nothing -> do
+      t <- newTVarIO Map.empty
+      _ <- newStore t
+      return t
+  games <- readTVarIO tvar
+  traverse_ (forkIO . hostGame) games
+  return $ actions (newGame openingState) hostGame (table $ flip gameHtml) tvar
   where
-    hostGame game = uncurry (play game) =<< evalRandIO . setupGame =<< seatPlayers game
+    hostGame game = do
+      st <- readTVarIO (latestState game)
+      case st of
+        SeatingPlayers m -> do
+          dynastyMap <- seatPlayers game m
+          hostGameAfterSeating game dynastyMap
+        Playing dynasties playingState -> play game dynasties playingState
+
+    hostGameAfterSeating game dynastyMap = uncurry (play game) =<< evalRandIO (setupGame dynastyMap)
 
 openingState :: GameState
 openingState = SeatingPlayers Map.empty
 
-seatPlayers :: GameTVars GameState PlayerSetupMessage -> IO DynastyMap
-seatPlayers game = updateWithNotify (seatPlayersUnfixed (uncurry setupMessage <$> nextMessageFromAnyPlayer (playerInputs game)) (pure . pure)) (notify game . SeatingPlayers) Map.empty
+seatPlayers :: GameTVars GameState PlayerSetupMessage -> DynastyMap -> IO DynastyMap
+seatPlayers game = updateWithNotify (seatPlayersUnfixed (uncurry setupMessage <$> nextMessageFromAnyPlayer (playerInputs game)) (pure . pure)) (notify game . SeatingPlayers)
 
 seatPlayersUnfixed :: (Monad m) => m SetupMessage -> (DynastyMap -> m (f DynastyMap)) -> (DynastyMap -> m (f DynastyMap)) -> DynastyMap -> m (f DynastyMap)
 seatPlayersUnfixed receive end recurse playerMap = do
@@ -65,16 +84,36 @@ gameHtml (SeatingPlayers m) = chooseDynasty m
 gameHtml (Playing dynasties playingState) = playingHtml dynasties playingState 
 
 playingHtml :: [Dynasty] -> PlayingState -> Player -> Html ()
-playingHtml  _ (PlayingState _ _ game) _ = div_ [id_ "board"] $ boardHtml $ view (board . grid) game where
-  boardHtml :: Grid -> Html ()
-  boardHtml grid' = table_ $ for_ [rowMin..rowMax] $ \_ -> 
-    tr_ $ for_ [columnMin..columnMax] $ \_ -> 
-      td_ $ toHtml ("square" :: Text)
-    where
-      ((rowMin, columnMin), (rowMax, columnMax)) = bounds grid'
---boardHtml (PlayingState _ (Game {_turnOrder})) player = div_ [id_ "board"] $ forM_ _turnOrder dynastyDiv
---  where
---    dynastyDiv dynasty = div_ $ toHtml $ show dynasty
+playingHtml _ (PlayingState _ _ game) _ = div_ [id_ "board"] $ do
+  boardHtml $ view (board . grid) game 
+  where
+    boardHtml :: Grid -> Html ()
+    boardHtml = div_ [id_ "grid"] . traverse_ square 
+    pieceHtml :: Piece -> Html ()
+    pieceHtml (TilePiece sphere) = div_ [classes_ ["piece", pieceType]] $ pure () where 
+      pieceType = case sphere of
+        Temples -> "temple"
+        _ -> "x"
+    pieceHtml (LeaderPiece _) = undefined
+    square :: Space -> Html ()
+    square s = div_ [classes_ ["tigris-square", marking']] $ piece' where
+      marking' = case view marking s of
+        Sand -> "sand"
+        River -> "river"
+      piece' = traverse_ pieceHtml (view slot s) 
+      
+
+--    boardHtml grid' = div_ [id_ "grid"] $
+--      for_ [rowMin..rowMax] $ \r -> 
+--        for_ [columnMin..columnMax] $ \c -> 
+--            where
+--              marking' = case (view (at (r, c) . marking) grid) of
+--              Temple -> "temple"
+--              Sand -> "sand"
+--              River -> "river"
+
+classes_ :: [Text] -> Attributes
+classes_ = class_ . intercalate " "
 
 chooseDynasty :: DynastyMap -> Player -> Html ()
 chooseDynasty playerMap thisPlayer =
