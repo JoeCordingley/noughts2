@@ -138,7 +138,7 @@ responses (Paths {getGamePath, getPlayPath, getJoinGamePath, createGameApi}) = R
     createGameResponse gameId playerId =
       addHeader (getGamePath gameId) $ addPlayerIdCookie (getGamePath gameId) playerId NoContent
     websocketDiv :: GameId -> Html ()
-    websocketDiv id' = div_ [term "hx-ext" "ws", term "ws-connect" (getPlayPath id')] $ div_ [id_ "game"] $ return ()
+    websocketDiv id' = div_ [id_ "game", term "hx-ext" "ws", term "ws-connect" (getPlayPath id')] $ div_ [id_ "board"] $ return ()
     knownPlayerResponse = htmxPage . websocketDiv
     unknownPlayerResponse :: GameId -> Html ()
     unknownPlayerResponse id' = htmxPage $ form_ [term "hx-post" $ getJoinGamePath id'] $ do

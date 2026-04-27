@@ -1,8 +1,8 @@
 html {
   font-size: 18px;
 }
-#game {
-  max-width: 1200px;
+#board {
+  max-width: 600px;
   margin: 0 auto;
   text-align: center; /* center inline elements like buttons */
 }
@@ -62,7 +62,7 @@ button.start-game:hover {
 }
 
 
-#board {
+#grid {
   display: grid;
   width: fit-content; /* Let the container fit the squares */
   grid-template-columns: repeat(16, 75px); /* 16 columns, 100px each */

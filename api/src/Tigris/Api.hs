@@ -85,18 +85,11 @@ gameHtml (SeatingPlayers m) = chooseDynasty m
 gameHtml (Playing dynasties playingState) = playingHtml dynasties playingState 
 
 playingHtml :: [Dynasty] -> PlayingState -> Player -> Html ()
-playingHtml _ (PlayingState _ _ game) _ = div_ [id_ "game", term "x-data" " { action: null}" ] $ do
+playingHtml _ (PlayingState _ _ game) _ = div_ [id_ "board"] $ do
   boardHtml $ view (board . grid) game 
   where
     boardHtml :: Grid -> Html ()
-    boardHtml grid' = div_ [id_ "board"] $ do
-      xif "action = 'leader'" $ leaderBoard grid'
-      xif "!action" $ inactiveBoard grid'
-    xif condition = template_ [term "x-if" condition] 
-    inactiveBoard :: Grid -> Html ()
-    inactiveBoard = traverse_ square 
-    leaderBoard :: Grid -> Html ()
-    leaderBoard = undefined
+    boardHtml = div_ [id_ "grid"] . traverse_ square 
     pieceHtml :: Piece -> Html ()
     pieceHtml (TilePiece sphere) = div_ [classes_ ["piece", pieceType]] $ pure () where 
       pieceType = case sphere of
@@ -111,19 +104,28 @@ playingHtml _ (PlayingState _ _ game) _ = div_ [id_ "game", term "x-data" " { ac
       piece' = traverse_ pieceHtml (view slot s) 
       
 
+--    boardHtml grid' = div_ [id_ "grid"] $
+--      for_ [rowMin..rowMax] $ \r -> 
+--        for_ [columnMin..columnMax] $ \c -> 
+--            where
+--              marking' = case (view (at (r, c) . marking) grid) of
+--              Temple -> "temple"
+--              Sand -> "sand"
+--              River -> "river"
+
 classes_ :: [Text] -> Attributes
 classes_ = class_ . intercalate " "
 
 chooseDynasty :: DynastyMap -> Player -> Html ()
 chooseDynasty playerMap thisPlayer =
-  div_ [id_ "game"] $ do
+  div_ [id_ "board"] $ do
     h2_ "Choose Your Dynasty"
     div_ [class_ "dynasty-grid"]
       $ forM_ [Archer, Bull, Pot, Lion]
       $ dynastyDiv
-    when (atLeastTwo playerMap) $ button_ [class_ "start-game action", term "hx-vals" startGame, term "ws-send" mempty] "Start Game"
+    when (atLeastTwo playerMap) $ button_ [class_ "start-game action", term "hx-vals" jsonVal, term "ws-send" mempty] "Start Game"
   where
-    startGame = encodeToText StartGame
+    jsonVal = encodeToText StartGame
     dynastyDiv :: Dynasty -> Html ()
     dynastyDiv dynasty = div_ ([class_ "dynasty-box"] ++ if isMine then [class_ "mine"] else []) $ do
       strong_ . toHtml $ show dynasty

@@ -152,7 +152,6 @@ table playerView tvars = Table {addPlayer, connectGame, tablePlayer}
 readLoop :: (FromJSON a) => Connection -> (a -> STM ()) -> IO ()
 readLoop conn enqueue = forever $ do
   msg <- receiveData conn
-  putStrLn $ tshow msg
   case decode msg of
     Just message -> do
       atomically . enqueue $ message
