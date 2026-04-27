@@ -148,6 +148,9 @@ data Interactions m = Interactions {getAction :: m Action, getCommittedTemples :
 
 startingBoard :: Board
 startingBoard = putTemples emptyBoard where
-  putTemples = flip (foldr putTemple) temples where
+  putTemples = applyAll putTemple temples where
     putTemple position = set (grid . ix position . slot) (Right (TilePiece Temples))
     temples = [(1,11), (2,2), (2,16), (3,6), (5,14), (7,9), (8,2), (9,15), (10,6), (11,11)]
+
+applyAll :: (a -> b -> b) -> [a] -> b -> b
+applyAll  = flip . foldr

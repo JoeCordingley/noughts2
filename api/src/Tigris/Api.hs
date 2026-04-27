@@ -13,7 +13,7 @@ module Tigris.Api (Dynasty, gameServer) where
 
 import BasicPrelude 
 import Control.Concurrent (forkIO)
-import Control.Concurrent.STM (newTVarIO, readTVarIO)
+import Control.Concurrent.STM (newTVarIO, readTVarIO, atomically)
 import Foreign.Store (lookupStore, readStore, newStore)
 import Control.Monad.Random.Lazy
 import qualified Data.Map as Map
@@ -23,6 +23,7 @@ import Lucid (term, toHtml, Attributes)
 import Lucid.Base (Html)
 import Lucid.Html5 hiding (for_) 
 import Tigris.Game
+import Tigris.Data
 import Data.Aeson (FromJSON, ToJSON)
 import Servant (Server)
 import Api (GameApi, actionsApi, responses, paths)
@@ -58,16 +59,16 @@ openingState :: GameState
 openingState = SeatingPlayers Map.empty
 
 seatPlayers :: GameTVars GameState PlayerSetupMessage -> DynastyMap -> IO DynastyMap
-seatPlayers game = updateWithNotify (seatPlayersUnfixed (uncurry setupMessage <$> nextMessageFromAnyPlayer (playerInputs game)) (pure . pure)) (notify game . SeatingPlayers)
+seatPlayers game = fix (recursing (atomically . notify game . SeatingPlayers) . seatPlayersUnfixed (fmap (uncurry setupMessage) . atomically . nextMessageFromAnyPlayer $ playerInputs game))
 
-seatPlayersUnfixed :: (Monad m) => m SetupMessage -> (DynastyMap -> m (f DynastyMap)) -> (DynastyMap -> m (f DynastyMap)) -> DynastyMap -> m (f DynastyMap)
-seatPlayersUnfixed receive end recurse playerMap = do
+seatPlayersUnfixed :: (Monad m) => m SetupMessage -> (DynastyMap -> m DynastyMap) -> DynastyMap -> m DynastyMap
+seatPlayersUnfixed receive recurse playerMap = do
   message <- receive
   case message of
     TakePosition player position -> recurse $ takePosition playerMap
       where
         takePosition = if Map.notMember position playerMap then Map.insert position player . Map.filter (/= player) else id
-    Start -> (if atLeastTwo playerMap then end else recurse) playerMap
+    Start -> (if atLeastTwo playerMap then pure else recurse) playerMap
 
 atLeastTwo :: Map Dynasty a -> Bool
 atLeastTwo playerMap = Map.size playerMap >= 2
@@ -75,7 +76,7 @@ atLeastTwo playerMap = Map.size playerMap >= 2
 data GameResult
 
 play :: GameTVars GameState a -> [Dynasty] -> PlayingState -> IO ()
-play game dynasties = void . updateWithNotify (playGame (pure . pure)) (notify game . Playing dynasties)
+play game dynasties = void . fix (recursing (atomically . notify game . Playing dynasties) . playGame )
 
 data GameState = SeatingPlayers DynastyMap | Playing [Dynasty] PlayingState deriving (Show)
 

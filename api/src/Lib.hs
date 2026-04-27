@@ -6,7 +6,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module Lib (ChooseRoleHtml, NoughtOrCross, PlayerId(..), keepAlive, sendHtml, encodeToText, recursing, GameId, Actions(..), Player(..), returning, Table(..), GameTVars(..), GameKey(..), actions, newGame, table, updateWithNotify, nextMessageFromAnyPlayer, notify, WebSocketContainer(..)) where
+module Lib (ChooseRoleHtml, NoughtOrCross, PlayerId(..), keepAlive, sendHtml, encodeToText, recursing, GameId, Actions(..), Player(..), returning, Table(..), GameTVars(..), GameKey(..), actions, newGame, table, nextMessageFromAnyPlayer, notify, WebSocketContainer(..)) where
 
 import BasicPrelude
 import Control.Concurrent (forkIO)
@@ -14,7 +14,6 @@ import Control.Concurrent.Async (cancel, withAsync)
 import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, modifyTVar', newTQueueIO, newTVar, orElse, readTQueue, readTVar, readTVarIO, retry, writeTQueue, writeTVar)
 import Data.Aeson (FromJSON, ToJSON, decode)
 import Data.Aeson.Text (encodeToLazyText)
-import Data.Function (fix)
 import qualified Data.Map as Map
 import qualified Data.Text.Lazy as TL
 import GHC.Conc (threadDelay)
@@ -60,9 +59,6 @@ instance FromHttpApiData GameId where
 instance ToHttpApiData GameId where
   toUrlPiece (GameId id') = id'
 
-
-fixAtomically :: ((a -> STM (IO b)) -> a -> STM (IO b)) -> a -> IO b
-fixAtomically f = fix $ \recurse -> join . atomically . f (pure . recurse)
 
 type ChooseRoleHtml a = Map a (PlayerId, Name) -> PlayerId -> (Html ())
 
@@ -114,10 +110,6 @@ notify game state = do
   readTVar (playerOutputs game) >>= traverse_ ($ state)
   writeTVar (latestState game) $ state
 
-updateWithNotify :: ((a -> STM (IO b)) -> a -> STM (IO b)) -> (a -> STM ()) -> a -> IO b
-updateWithNotify update notify' = (fixAtomically $ update . notifying) <=< returning (atomically . notify')
-  where
-    notifying recurse = returning notify' >=> recurse
 
 actions :: (Player -> STM game) -> (game -> IO ()) -> (game -> Table) -> TVar (Map GameId game) -> Actions
 actions newGame' hostGame table' gameMap = Actions {createGame, newPlayerId, getGame}

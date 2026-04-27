@@ -2,29 +2,9 @@
 {-# LANGUAGE TupleSections #-}
 
 module Tigris.Game
-  ( Dynasty (..),
-    Game (..),
-    Board (..),
-    Grid,
-    LeaderPositions,
-    PlayerInfo (..),
-    Space (..),
-    Marking (..),
-    Bag,
-    Hand,
-    Score,
-    Winners,
-    Action (..),
-    Position ,
+  (
     setupGame,
     playGame,
-    PlayingState(..),
-    board,
-    grid,
-    marking,
-    slot,
-    Sphere(..),
-    Piece(..)
   )
 where
 
@@ -85,8 +65,8 @@ startingScore = Map.fromList $ allSpheresZero
 spheres :: [Sphere]
 spheres = [Settlements, Temples, Farms, Markets]
 
-playGame :: Monad m => (Winners -> m a) -> (PlayingState -> m a) -> PlayingState -> m a
-playGame finish recurse (PlayingState turn playerOrder game) = either finish recurse =<< playInteraction interactions turn playerOrder game
+playGame :: Monad m => (PlayingState -> m Winners) -> PlayingState -> m Winners
+playGame recurse (PlayingState turn playerOrder game) = either pure recurse =<< playInteraction interactions turn playerOrder game
 
 playInteraction :: Monad m => (Dynasty -> Interactions m) -> Interaction -> [Dynasty] -> Game -> m (Either Winners PlayingState)
 playInteraction interactions' interaction (currentPlayer:subsequentPlayers) game = case interaction of
