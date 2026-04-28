@@ -85,7 +85,7 @@ gameHtml (SeatingPlayers m) = chooseDynasty m
 gameHtml (Playing dynasties playingState) = playingHtml dynasties playingState 
 
 playingHtml :: [Dynasty] -> PlayingState -> Player -> Html ()
-playingHtml _ (PlayingState _ _ game) _ = div_ [id_ "board"] $ do
+playingHtml _ (PlayingState _ _ game) _ = gameDiv $ do
   boardHtml $ view (board . grid) game 
   where
     boardHtml :: Grid -> Html ()
@@ -118,7 +118,7 @@ classes_ = class_ . intercalate " "
 
 chooseDynasty :: DynastyMap -> Player -> Html ()
 chooseDynasty playerMap thisPlayer =
-  div_ [id_ "board"] $ do
+  gameDiv $ do
     h2_ "Choose Your Dynasty"
     div_ [class_ "dynasty-grid"]
       $ forM_ [Archer, Bull, Pot, Lion]

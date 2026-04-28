@@ -6,7 +6,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module Lib (ChooseRoleHtml, NoughtOrCross, PlayerId(..), keepAlive, sendHtml, encodeToText, recursing, GameId, Actions(..), Player(..), returning, Table(..), GameTVars(..), GameKey(..), actions, newGame, table, nextMessageFromAnyPlayer, notify, WebSocketContainer(..)) where
+module Lib (ChooseRoleHtml, NoughtOrCross, PlayerId(..), keepAlive, sendHtml, encodeToText, recursing, GameId, Actions(..), Player(..), returning, Table(..), GameTVars(..), GameKey(..), actions, newGame, table, nextMessageFromAnyPlayer, notify, WebSocketContainer(..), gameDiv) where
 
 import BasicPrelude
 import Control.Concurrent (forkIO)
@@ -23,6 +23,7 @@ import Network.WebSockets.Connection (Connection, receiveData, sendTextData, wit
 import Servant
 import Servant.API.WebSocket (WebSocket)
 import Text.StringRandom (stringRandomIO)
+import Lucid.Html5
 
 
 generateGameId :: IO GameId
@@ -166,3 +167,5 @@ nextMessageFromAnyPlayer playerInputs = readTVar playerInputs >>= nextPlayerMess
   where
     nextPlayerMessage = foldr orElse retry . map sequence
 
+gameDiv :: Html () -> Html ()
+gameDiv = div_ [id_ "game"] 

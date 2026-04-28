@@ -1,7 +1,8 @@
 html {
   font-size: 18px;
 }
-#board {
+
+#game {
   max-width: 600px;
   margin: 0 auto;
   text-align: center; /* center inline elements like buttons */
