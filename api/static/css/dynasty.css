@@ -3,7 +3,7 @@ html {
 }
 
 #game {
-  max-width: 600px;
+  max-width: 1200px;
   margin: 0 auto;
   text-align: center; /* center inline elements like buttons */
 }
@@ -63,7 +63,7 @@ button.start-game:hover {
 }
 
 
-#grid {
+#board {
   display: grid;
   width: fit-content; /* Let the container fit the squares */
   grid-template-columns: repeat(16, 75px); /* 16 columns, 100px each */

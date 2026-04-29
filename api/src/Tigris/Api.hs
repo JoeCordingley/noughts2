@@ -89,7 +89,7 @@ playingHtml _ (PlayingState _ _ game) _ = gameDiv $ do
   boardHtml $ view (board . grid) game 
   where
     boardHtml :: Grid -> Html ()
-    boardHtml = div_ [id_ "grid"] . traverse_ square 
+    boardHtml = div_ [id_ "board"] . traverse_ square 
     pieceHtml :: Piece -> Html ()
     pieceHtml (TilePiece sphere) = div_ [classes_ ["piece", pieceType]] $ pure () where 
       pieceType = case sphere of
