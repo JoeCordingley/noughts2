@@ -43,10 +43,10 @@ bagToList = Map.foldrWithKey f [] where
 emptyHand :: Hand
 emptyHand = Map.fromList $ map (first Tile) allSpheresZero
 
-setupGame :: (MonadRandom m) => Map Dynasty a -> m ([Dynasty], PlayingState)
+setupGame :: (MonadRandom m) => Map Dynasty a -> m PlayingState
 setupGame m = fromShuffled <$> shuffleM dynasties <*> shuffleM (bagToList tilesMinusStartingTemples)
   where
-    fromShuffled dynasties' tiles = (dynasties', PlayingState (Turn FirstAction) (cycle dynasties) (Game {_bag = remainingTiles, _players = fmap startingPlayerInfo startingPlayerHand, _board = startingBoard})) where
+    fromShuffled dynasties' tiles = PlayingState (Turn FirstAction) (cycle dynasties) (Game {_bag = remainingTiles, _players = fmap startingPlayerInfo startingPlayerHand, _board = startingBoard}) where
       (startingPlayerHand, remainingTiles) = fromJust $ state traverse dealUpToSix (emptyHands, tiles)
       emptyHands = Map.fromList $ map (,emptyHand) dynasties'
     dynasties = Map.keys m

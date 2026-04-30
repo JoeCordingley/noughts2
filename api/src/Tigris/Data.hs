@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Tigris.Data
   ( Sphere (..),
@@ -44,7 +45,8 @@ module Tigris.Data
     leaderDynasty,
     regions,
     slot,
-    area
+    area,
+    sphereText
   )
 where
 
@@ -58,6 +60,7 @@ import Data.Monoid (Sum)
 import Data.Semigroup (Min)
 import Data.Array (Array, array)
 import qualified Data.Map as Map
+import Data.Text (Text)
 
 data Sphere = Temples | Markets | Settlements | Farms deriving (Show, Eq, Ord)
 newtype Tile = Tile {_tileSphere :: Sphere} deriving (Show, Eq, Ord)
@@ -154,3 +157,9 @@ startingBoard = putTemples emptyBoard where
 
 applyAll :: (a -> b -> b) -> [a] -> b -> b
 applyAll  = flip . foldr
+
+sphereText :: Sphere -> Text
+sphereText Temples = "temples"
+sphereText Markets = "markets"
+sphereText Settlements = "settlements"
+sphereText Farms = "farms"

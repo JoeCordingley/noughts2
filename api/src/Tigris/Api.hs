@@ -17,6 +17,7 @@ import Control.Concurrent.STM (newTVarIO, readTVarIO, atomically)
 import Foreign.Store (lookupStore, readStore, newStore)
 import Control.Monad.Random.Lazy
 import qualified Data.Map as Map
+import Data.Map ((!))
 import GHC.Generics (Generic)
 import Lib
 import Lucid (term, toHtml, Attributes)
@@ -52,8 +53,7 @@ tigrisActions = do
           dynastyMap <- seatPlayers game m
           hostGameAfterSeating game dynastyMap
         Playing dynasties playingState -> play game dynasties playingState
-
-    hostGameAfterSeating game dynastyMap = uncurry (play game) =<< evalRandIO (setupGame dynastyMap)
+    hostGameAfterSeating game dynastyMap = play game dynastyMap =<< evalRandIO (setupGame dynastyMap)
 
 openingState :: GameState
 openingState = SeatingPlayers Map.empty
@@ -75,23 +75,42 @@ atLeastTwo playerMap = Map.size playerMap >= 2
 
 data GameResult
 
-play :: GameTVars GameState a -> [Dynasty] -> PlayingState -> IO ()
+play :: GameTVars GameState a -> DynastyMap -> PlayingState -> IO ()
 play game dynasties = void . fix (recursing (atomically . notify game . Playing dynasties) . playGame )
 
-data GameState = SeatingPlayers DynastyMap | Playing [Dynasty] PlayingState deriving (Show)
+data GameState = SeatingPlayers DynastyMap | Playing DynastyMap PlayingState deriving (Show)
 
 gameHtml :: GameState -> Player -> Html ()
 gameHtml (SeatingPlayers m) = chooseDynasty m
-gameHtml (Playing dynasties playingState) = playingHtml dynasties playingState 
+gameHtml (Playing m playingState) = playingHtml . htmlModel m playingState
 
-playingHtml :: [Dynasty] -> PlayingState -> Player -> Html ()
-playingHtml _ (PlayingState _ _ game) _ = gameDiv $ do
-  boardHtml $ view (board . grid) game 
+xData :: Text -> Attributes
+xData = term "x-data" 
+
+data HtmlModel = HtmlModel {htmlGrid :: Grid, isCurrentPlayer :: Bool, leadersInHand :: [Sphere] }
+
+htmlModel :: DynastyMap -> PlayingState -> Player -> HtmlModel
+htmlModel m (PlayingState _ dynasties game) player = case dynasties of
+  (currentPlayer:_) -> HtmlModel { htmlGrid = (view (board . grid) game), isCurrentPlayer = (m ! currentPlayer) == player, leadersInHand = [Temples]}
+  _ -> undefined
+
+
+xIfTemplate :: Text -> Html () -> Html ()
+xIfTemplate predicate = template_ [term "x-if" predicate] 
+
+playingHtml :: HtmlModel -> Html ()
+playingHtml (HtmlModel {htmlGrid, isCurrentPlayer, leadersInHand}) = gameDiv $ div_ [xData "{ action: null }"] $ do
+  bool "not your turn" "your turn" isCurrentPlayer
+  xIfTemplate "action" $ div_ $ span_ [term "x-text" "sphere"] mempty <> " selected"
+  boardHtml $ htmlGrid
+  when isCurrentPlayer $ traverse_ leaderButton leadersInHand
   where
-    boardHtml :: Grid -> Html ()
+    leaderButton :: Sphere -> Html ()
+    leaderButton sphere = button_ [term "@click" ("action = 'leader'; sphere = '" <> sphereText' <> "'") ] $ toHtml sphereText' where
+      sphereText' = sphereText sphere
     boardHtml = div_ [id_ "board"] . traverse_ square 
     pieceHtml :: Piece -> Html ()
-    pieceHtml (TilePiece sphere) = div_ [classes_ ["piece", pieceType]] $ pure () where 
+    pieceHtml (TilePiece sphere) = div_ [classes_ ["piece", pieceType]] $ mempty where 
       pieceType = case sphere of
         Temples -> "temple"
         _ -> "x"
@@ -102,8 +121,6 @@ playingHtml _ (PlayingState _ _ game) _ = gameDiv $ do
         Sand -> "sand"
         River -> "river"
       piece' = traverse_ pieceHtml (view slot s) 
-      
-
 --    boardHtml grid' = div_ [id_ "grid"] $
 --      for_ [rowMin..rowMax] $ \r -> 
 --        for_ [columnMin..columnMax] $ \c -> 
