@@ -52,7 +52,7 @@ module Tigris.Data
   )
 where
 
-import Control.Lens (makeLenses, ix, set)
+import Control.Lens (makeLenses, ix, set, over)
 import Data.Aeson (FromJSON, ToJSON, ToJSONKey)
 import GHC.Generics (Generic)
 import Data.Map (Map)
@@ -97,7 +97,7 @@ emptyGrid = array ((1,1), (11,16)) $ do
       , replicate 16 Sand
       , replicate 16 Sand
       ]
-    empty marking = Space {_marking = marking, _slot = Left (EmptySpace{_borderingRegions = Set.empty}), _nextToTemples = 0}
+    empty marking = Space {_marking = marking, _slot = Left (EmptySpace{_borderingRegions = Set.empty}), _nextToTemples = False}
 
 data Leader = Leader {_leaderDynasty :: Dynasty, _leaderSphere :: Sphere} deriving (Show, Eq, Ord)
 
@@ -124,7 +124,7 @@ data Region = Region { _area :: Set Space, _leaders :: Set Leader } deriving Sho
 
 data PlayerInfo = PlayerInfo {_score :: Score, _hand :: Bag Sphere, _catastropheTiles :: Int} deriving Show
 
-data Space = Space {_marking :: Marking, _slot :: Either EmptySpace Piece, _nextToTemples :: Int} deriving Show
+data Space = Space {_marking :: Marking, _slot :: Either EmptySpace Piece, _nextToTemples :: Bool} deriving Show
 
 data EmptySpace = EmptySpace {_borderingRegions :: Set RegionKey} deriving Show
 data Piece = LeaderPiece Leader | TilePiece Sphere deriving Show
@@ -160,7 +160,11 @@ startingBoard = putTemples emptyBoard where
     temples = [(1,11), (2,2), (2,16), (3,6), (5,14), (7,9), (8,2), (9,15), (10,6), (11,11)]
 
 putTemple :: Position -> Board -> Board
-putTemple position = set (grid . ix position . slot) (Right (TilePiece Temples))
+putTemple position = over grid $ applyAll setTempleAdjacent (adjacentPositions position) . set (ix position . slot) (Right (TilePiece Temples)) where
+  setTempleAdjacent adjacency = set (ix adjacency . nextToTemples) True
+
+adjacentPositions :: Position -> [Position]
+adjacentPositions = undefined
 
 applyAll :: (a -> b -> b) -> [a] -> b -> b
 applyAll  = flip . foldr
