@@ -119,8 +119,7 @@ playingHtml (HtmlModel {htmlGrid, isCurrentPlayer, leadersInHand}) = gameDiv $ d
     boardHtml g = do
       xIfTemplate "!action" $ boardDiv $ traverse_ inactiveSquare g
       xIfTemplate "action == 'leader'" $ do
-        xIfTemplate "sphere == 'temples'" $ boardDiv $ traverse_ (uncurry maybeLeaderSquare) $ Array.assocs g
-    maybeLeaderSquare = leaderSquare . encodeToText . PositionLeader Temples . Just
+        xIfTemplate "sphere == 'temples'" $ boardDiv $ traverse_ (\(i, s) -> leaderSquare (encodeToText $ PositionLeader Temples (Just i)) s) $ Array.assocs g
     boardDiv = div_ [id_ "board", term "x-init" "htmx.process"] 
     piece' = traverse_ pieceHtml 
     inactiveSquare s = div_ ([classes_ $ ["tigris-square", markingText $ view marking s]] ) . piece' $ view slot s
