@@ -4,8 +4,7 @@
 
 module Tigris.Data
   ( Sphere (..),
-    Tile (..),
-    tileSphere,
+    Tile ,
     Dynasty (..),
     Leader (..),
     leaderSphere,
@@ -41,17 +40,20 @@ module Tigris.Data
     RevoltDetails(..),
     Region,
     Interactions (..),
+    EmptySpace(..),
     startingBoard,
     leaderDynasty,
     regions,
     slot,
     area,
-    sphereText
+    sphereText,
+    markingText,
+    nextToTemples
   )
 where
 
-import Control.Lens (makeLenses, ix, set)
-import Data.Aeson (FromJSON, ToJSON)
+import Control.Lens (makeLenses, ix, set, over)
+import Data.Aeson (FromJSON, ToJSON, ToJSONKey)
 import GHC.Generics (Generic)
 import Data.Map (Map)
 import Data.Set (Set)
@@ -62,8 +64,11 @@ import Data.Array (Array, array)
 import qualified Data.Map as Map
 import Data.Text (Text)
 
-data Sphere = Temples | Markets | Settlements | Farms deriving (Show, Eq, Ord)
-newtype Tile = Tile {_tileSphere :: Sphere} deriving (Show, Eq, Ord)
+data Sphere = Temples | Markets | Settlements | Farms deriving (Show, Eq, Ord, Generic)
+
+type Tile = Sphere 
+instance ToJSON Sphere
+instance ToJSONKey Sphere
 data Dynasty = Archer | Bull | Pot | Lion deriving (Eq, Ord, Generic, Show)
 instance FromJSON Dynasty
 instance ToJSON Dynasty
@@ -92,13 +97,13 @@ emptyGrid = array ((1,1), (11,16)) $ do
       , replicate 16 Sand
       , replicate 16 Sand
       ]
-    empty marking = Space {_marking = marking, _slot = Left (EmptySpace{_borderingRegions = Set.empty})}
+    empty marking = Space {_marking = marking, _slot = Left (EmptySpace{_borderingRegions = Set.empty}), _nextToTemples = False}
 
 data Leader = Leader {_leaderDynasty :: Dynasty, _leaderSphere :: Sphere} deriving (Show, Eq, Ord)
 
 data PlayingState = PlayingState Interaction [Dynasty] Game deriving Show
 
-data Game = Game {_bag :: [Tile], _players :: Map Dynasty PlayerInfo, _board :: Board} deriving (Show)
+data Game = Game {_bag :: [Sphere], _players :: Map Dynasty PlayerInfo, _board :: Board} deriving (Show)
 
 data ActionNumber = FirstAction | SecondAction  deriving (Show)
 data Interaction = Turn ActionNumber | RevoltAttack RevoltDetails | RevoltDefence RevoltDetails deriving Show
@@ -117,9 +122,9 @@ type LeaderPositions = Map Leader Position
 
 data Region = Region { _area :: Set Space, _leaders :: Set Leader } deriving Show
 
-data PlayerInfo = PlayerInfo {_score :: Score, _hand :: Bag Tile, _catastropheTiles :: Int} deriving Show
+data PlayerInfo = PlayerInfo {_score :: Score, _hand :: Bag Sphere, _catastropheTiles :: Int} deriving Show
 
-data Space = Space {_marking :: Marking, _slot :: Either EmptySpace Piece} deriving Show
+data Space = Space {_marking :: Marking, _slot :: Either EmptySpace Piece, _nextToTemples :: Bool} deriving Show
 
 data EmptySpace = EmptySpace {_borderingRegions :: Set RegionKey} deriving Show
 data Piece = LeaderPiece Leader | TilePiece Sphere deriving Show
@@ -130,16 +135,16 @@ data Marking = Sand | River deriving Show
 
 type Bag a = Map a (Sum Int)
 
-type Hand = Bag Tile
+type Hand = Bag Sphere
 
 type Score = Map Sphere (Sum Int)
 
 type Winners = [Dynasty]
 
-data Action = PositionLeader Sphere (Maybe Position) | PlaceTile Sphere Position | PlayCatastrophe | ReplaceTiles Hand | Pass
+data Action = PositionLeader Sphere (Maybe Position) | PlaceTile Sphere Position | PlayCatastrophe | ReplaceTiles Hand | Pass deriving (Generic)
+
 type Position = (Int, Int)
 
-makeLenses ''Tile
 makeLenses ''Leader
 makeLenses ''Game
 makeLenses ''Board
@@ -152,8 +157,14 @@ data Interactions m = Interactions {getAction :: m Action, getCommittedTemples :
 startingBoard :: Board
 startingBoard = putTemples emptyBoard where
   putTemples = applyAll putTemple temples where
-    putTemple position = set (grid . ix position . slot) (Right (TilePiece Temples))
     temples = [(1,11), (2,2), (2,16), (3,6), (5,14), (7,9), (8,2), (9,15), (10,6), (11,11)]
+
+putTemple :: Position -> Board -> Board
+putTemple position = over grid $ applyAll setTempleAdjacent (adjacentPositions position) . set (ix position . slot) (Right (TilePiece Temples)) where
+  setTempleAdjacent adjacency = set (ix adjacency . nextToTemples) True
+
+adjacentPositions :: Position -> [Position]
+adjacentPositions = undefined
 
 applyAll :: (a -> b -> b) -> [a] -> b -> b
 applyAll  = flip . foldr
@@ -163,3 +174,9 @@ sphereText Temples = "temples"
 sphereText Markets = "markets"
 sphereText Settlements = "settlements"
 sphereText Farms = "farms"
+
+markingText :: Marking -> Text
+markingText Sand = "sand"
+markingText River = "river"
+
+instance ToJSON Action

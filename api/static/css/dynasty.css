@@ -99,6 +99,9 @@ button.start-game:hover {
   justify-content: center;
 }
 
-.temple {
+.temples {
   background-color: red;
+}
+.clickable {
+  border: 2px solid red;
 }

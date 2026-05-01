@@ -10,7 +10,6 @@ where
 
 import Control.Lens
 import Control.Monad.Random.Lazy
-import Control.Arrow (first)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import System.Random.Shuffle (shuffleM)
@@ -30,18 +29,18 @@ one :: a -> Bag a
 one a = Map.singleton a (Sum 1)
 
 
-allCivilizationTiles :: Bag Tile
-allCivilizationTiles = Map.fromList $ map (first Tile) [(Temples, 57), (Markets, 30), (Settlements, 30), (Farms,  36)]
+allCivilizationTiles :: Bag Sphere
+allCivilizationTiles = Map.fromList $ [(Temples, 57), (Markets, 30), (Settlements, 30), (Farms,  36)]
 
-tilesMinusStartingTemples :: Bag Tile
-tilesMinusStartingTemples = allCivilizationTiles <> Map.singleton (Tile Temples) (-10)
+tilesMinusStartingTemples :: Bag Sphere
+tilesMinusStartingTemples = allCivilizationTiles <> Map.singleton Temples (-10)
 
 bagToList :: Bag a -> [a]
 bagToList = Map.foldrWithKey f [] where
   f k (Sum n) ts = replicate n k <> ts
 
 emptyHand :: Hand
-emptyHand = Map.fromList $ map (first Tile) allSpheresZero
+emptyHand = Map.fromList $ allSpheresZero
 
 setupGame :: (MonadRandom m) => Map Dynasty a -> m PlayingState
 setupGame m = fromShuffled <$> shuffleM dynasties <*> shuffleM (bagToList tilesMinusStartingTemples)
@@ -65,8 +64,8 @@ startingScore = Map.fromList $ allSpheresZero
 spheres :: [Sphere]
 spheres = [Settlements, Temples, Farms, Markets]
 
-playGame :: Monad m => (PlayingState -> m Winners) -> PlayingState -> m Winners
-playGame recurse (PlayingState turn playerOrder game) = either pure recurse =<< playInteraction interactions turn playerOrder game
+playGame :: Monad m => (Dynasty -> Interactions m) -> (PlayingState -> m Winners) -> PlayingState -> m Winners
+playGame interactions recurse (PlayingState turn playerOrder game) = either pure recurse =<< playInteraction interactions turn playerOrder game
 
 playInteraction :: Monad m => (Dynasty -> Interactions m) -> Interaction -> [Dynasty] -> Game -> m (Either Winners PlayingState)
 playInteraction interactions' interaction (currentPlayer:subsequentPlayers) game = case interaction of
@@ -103,8 +102,6 @@ placeLeader = undefined
 --  addToGrid position = set (at position. traverse . placedPiece) . Just $ PlacedLeader leader
 
 
-interactions :: Dynasty -> Interactions m
-interactions = undefined
 
 --playTurn :: (Monad f) => (Dynasty -> Game -> f (Either Game (Either Winners Game))) -> Dynasty -> Game -> f (Either Winners Game)
 --playTurn getTurn player = runExceptT . (liftEither . (maybeEndGame <=< endTurn) <=< playUpToTwoTurns) where
@@ -159,7 +156,7 @@ matchingLeader = undefined
 state :: ((a -> StateT st f b) -> s -> StateT st f t) -> (a -> StateT st f b) -> (s, st) -> f (t, st)
 state l f (s, st) = runStateT (l f s) st
 
-dealUpToSix :: Hand -> StateT [Tile] Maybe Hand
+dealUpToSix :: Hand -> StateT [Sphere] Maybe Hand
 dealUpToSix playerTiles = foldr (>=>) pure (replicate (6 - length playerTiles) (StateT . dealOne)) playerTiles where
   dealOne playerTiles' (x:xs) = Just (one x <> playerTiles', xs)
   dealOne _ [] = Nothing

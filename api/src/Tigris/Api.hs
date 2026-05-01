@@ -29,6 +29,8 @@ import Data.Aeson (FromJSON, ToJSON)
 import Servant (Server)
 import Api (GameApi, actionsApi, responses, paths)
 import Control.Lens
+import qualified Data.Array as Array
+import GHC.Conc (threadDelay)
 
 gameServer :: IO (Server GameApi)
 gameServer = actionsApi (responses $ paths Tigris) <$> tigrisActions
@@ -76,7 +78,7 @@ atLeastTwo playerMap = Map.size playerMap >= 2
 data GameResult
 
 play :: GameTVars GameState a -> DynastyMap -> PlayingState -> IO ()
-play game dynasties = void . fix (recursing (atomically . notify game . Playing dynasties) . playGame )
+play game dynasties = void . fix (recursing (atomically . notify game . Playing dynasties) . playGame interactions)
 
 data GameState = SeatingPlayers DynastyMap | Playing DynastyMap PlayingState deriving (Show)
 
@@ -96,39 +98,39 @@ htmlModel m (PlayingState _ dynasties game) player = case dynasties of
 
 
 xIfTemplate :: Text -> Html () -> Html ()
-xIfTemplate predicate = template_ [term "x-if" predicate] 
+xIfTemplate predicate = template_ [term "x-if" predicate] . div_
+
+wsSend :: Attributes
+wsSend = term "ws-send" mempty
+
+hxVals :: Text -> Attributes
+hxVals = term "hx-vals"
 
 playingHtml :: HtmlModel -> Html ()
 playingHtml (HtmlModel {htmlGrid, isCurrentPlayer, leadersInHand}) = gameDiv $ div_ [xData "{ action: null }"] $ do
   bool "not your turn" "your turn" isCurrentPlayer
-  xIfTemplate "action" $ div_ $ span_ [term "x-text" "sphere"] mempty <> " selected"
+  xIfTemplate "action == 'leader'" $ div_ $ span_ [term "x-text" "sphere"] mempty <> " leader selected"
   boardHtml $ htmlGrid
   when isCurrentPlayer $ traverse_ leaderButton leadersInHand
   where
     leaderButton :: Sphere -> Html ()
-    leaderButton sphere = button_ [term "@click" ("action = 'leader'; sphere = '" <> sphereText' <> "'") ] $ toHtml sphereText' where
+    leaderButton sphere = button_ [term "@click" $ "action = 'leader'; sphere = '" <> sphereText' <> "'" ] $ toHtml sphereText' where
       sphereText' = sphereText sphere
-    boardHtml = div_ [id_ "board"] . traverse_ square 
+    boardHtml g = do
+      xIfTemplate "!action" $ boardDiv $ traverse_ inactiveSquare g
+      xIfTemplate "action == 'leader'" $ do
+        xIfTemplate "sphere == 'temples'" $ boardDiv $ traverse_ (uncurry maybeLeaderSquare) $ Array.assocs g
+    maybeLeaderSquare = leaderSquare . encodeToText . PositionLeader Temples . Just
+    boardDiv = div_ [id_ "board", term "x-init" "htmx.process"] 
+    piece' = traverse_ pieceHtml 
+    inactiveSquare s = div_ ([classes_ $ ["tigris-square", markingText $ view marking s]] ) . piece' $ view slot s
+    leaderSquare hxVals' s = div_ ([classes_ $ ["tigris-square", markingText $ view marking s, "clickable"], wsSend, hxVals hxVals'] ) . piece' $ view slot s
     pieceHtml :: Piece -> Html ()
-    pieceHtml (TilePiece sphere) = div_ [classes_ ["piece", pieceType]] $ mempty where 
-      pieceType = case sphere of
-        Temples -> "temple"
-        _ -> "x"
+    pieceHtml (TilePiece sphere) = div_ [classes_ ["piece", sphereText sphere]] $ mempty 
     pieceHtml (LeaderPiece _) = undefined
-    square :: Space -> Html ()
-    square s = div_ [classes_ ["tigris-square", marking']] $ piece' where
-      marking' = case view marking s of
-        Sand -> "sand"
-        River -> "river"
-      piece' = traverse_ pieceHtml (view slot s) 
---    boardHtml grid' = div_ [id_ "grid"] $
---      for_ [rowMin..rowMax] $ \r -> 
---        for_ [columnMin..columnMax] $ \c -> 
---            where
---              marking' = case (view (at (r, c) . marking) grid) of
---              Temple -> "temple"
---              Sand -> "sand"
---              River -> "river"
+
+interactions :: Dynasty -> Interactions IO 
+interactions _ = Interactions {getCommittedTemples = forever $ threadDelay 10000, getAction= forever $ threadDelay 10000}
 
 classes_ :: [Text] -> Attributes
 classes_ = class_ . intercalate " "
@@ -140,14 +142,14 @@ chooseDynasty playerMap thisPlayer =
     div_ [class_ "dynasty-grid"]
       $ forM_ [Archer, Bull, Pot, Lion]
       $ dynastyDiv
-    when (atLeastTwo playerMap) $ button_ [class_ "start-game action", term "hx-vals" jsonVal, term "ws-send" mempty] "Start Game"
+    when (atLeastTwo playerMap) $ button_ [class_ "start-game action", hxVals startGame, term "ws-send" mempty] "Start Game"
   where
-    jsonVal = encodeToText StartGame
+    startGame = encodeToText StartGame
     dynastyDiv :: Dynasty -> Html ()
     dynastyDiv dynasty = div_ ([class_ "dynasty-box"] ++ if isMine then [class_ "mine"] else []) $ do
       strong_ . toHtml $ show dynasty
       small_ $ toHtml status
-      span_ [class_ "button-area"] $ unless isTaken $ button_ [class_ "dynasty action", term "hx-vals" chooseDynastyJson, term "ws-send" mempty] "Choose"
+      span_ [class_ "button-area"] $ unless isTaken $ button_ [class_ "dynasty action", hxVals chooseDynastyJson, wsSend] "Choose"
       where
         (isTaken, isMine, status) = case Map.lookup dynasty playerMap of
           Just player -> (True, player == thisPlayer, "Player: " <> playerName player)
