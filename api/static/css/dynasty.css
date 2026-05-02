@@ -90,13 +90,17 @@ button.start-game:hover {
   background-color: gold;
 }
 
-.piece {
+.piece{
   width: 71px;
   height: 71px;
   box-sizing: border-box; /* Ensures the 1px border is INSIDE the 100px */
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.piece.leader {
+  border-radius: 100%;
 }
 
 .temples {

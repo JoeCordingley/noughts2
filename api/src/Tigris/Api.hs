@@ -77,8 +77,8 @@ atLeastTwo playerMap = Map.size playerMap >= 2
 
 data GameResult
 
-play :: GameTVars GameState a -> DynastyMap -> PlayingState -> IO ()
-play game dynasties = void . fix (recursing (atomically . notify game . Playing dynasties) . playGame interactions)
+play :: GameTVars GameState PlayerSetupMessage -> DynastyMap -> PlayingState -> IO ()
+play game dynasties = void . fix (recursing (atomically . notify game . Playing dynasties) . playGame (interactions game))
 
 data GameState = SeatingPlayers DynastyMap | Playing DynastyMap PlayingState deriving (Show)
 
@@ -120,17 +120,17 @@ playingHtml (HtmlModel {htmlGrid, isCurrentPlayer, leadersInHand}) = gameDiv $ d
       xIfTemplate "!action" $ boardDiv $ traverse_ inactiveSquare g
       xIfTemplate "action == 'leader'" $ do
         xIfTemplate "sphere == 'temples'" $ boardDiv $ traverse_ (uncurry maybeLeaderSquare) $ Array.assocs g
-    maybeLeaderSquare = leaderSquare . encodeToText . PositionLeader Temples . Just
+    maybeLeaderSquare position s = bool (inactiveSquare s) (leaderSquare (encodeToText . PositionLeader Temples $ Just position) s) (view nextToTemples s)
     boardDiv = div_ [id_ "board", term "x-init" "htmx.process"] 
     piece' = traverse_ pieceHtml 
     inactiveSquare s = div_ ([classes_ $ ["tigris-square", markingText $ view marking s]] ) . piece' $ view slot s
     leaderSquare hxVals' s = div_ ([classes_ $ ["tigris-square", markingText $ view marking s, "clickable"], wsSend, hxVals hxVals'] ) . piece' $ view slot s
     pieceHtml :: Piece -> Html ()
-    pieceHtml (TilePiece sphere) = div_ [classes_ ["piece", sphereText sphere]] $ mempty 
-    pieceHtml (LeaderPiece _) = undefined
+    pieceHtml (TilePiece sphere) = div_ [classes_ ["piece", sphereText sphere, "tile"]] $ mempty 
+    pieceHtml (LeaderPiece sphere) = div_ [classes_ ["piece", sphereText sphere, "leader"]] $ mempty 
 
-interactions :: Dynasty -> Interactions IO 
-interactions _ = Interactions {getCommittedTemples = forever $ threadDelay 10000, getAction= forever $ threadDelay 10000}
+interactions :: GameTVars GameState PlayerSetupMessage -> Dynasty -> Interactions IO 
+interactions _ _ = Interactions {getCommittedTemples = forever $ threadDelay 10000, getAction = forever $ threadDelay 10000}
 
 classes_ :: [Text] -> Attributes
 classes_ = class_ . intercalate " "
@@ -165,6 +165,7 @@ setupMessage player (ChooseDynasty dynasty) = TakePosition player dynasty
 setupMessage _ StartGame = Start
 
 data PlayerSetupMessage = ChooseDynasty Dynasty | StartGame deriving (Generic, Show)
+data TigrisMessage = PlayerSetupMessage PlayerSetupMessage | PlayMessage
 
 instance FromJSON PlayerSetupMessage
 

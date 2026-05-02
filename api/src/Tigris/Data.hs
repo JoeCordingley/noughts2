@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module Tigris.Data
   ( Sphere (..),
@@ -127,7 +128,7 @@ data PlayerInfo = PlayerInfo {_score :: Score, _hand :: Bag Sphere, _catastrophe
 data Space = Space {_marking :: Marking, _slot :: Either EmptySpace Piece, _nextToTemples :: Bool} deriving Show
 
 data EmptySpace = EmptySpace {_borderingRegions :: Set RegionKey} deriving Show
-data Piece = LeaderPiece Leader | TilePiece Sphere deriving Show
+data Piece = LeaderPiece Sphere | TilePiece Sphere deriving Show
 
 type RegionKey = Min Space
 
@@ -164,7 +165,18 @@ putTemple position = over grid $ applyAll setTempleAdjacent (adjacentPositions p
   setTempleAdjacent adjacency = set (ix adjacency . nextToTemples) True
 
 adjacentPositions :: Position -> [Position]
-adjacentPositions = undefined
+adjacentPositions (i, j) = ((i,) <$> adjacentColumns j) <> ((,j) <$> adjacentRows i) 
+
+adjacentColumns :: Int -> [Int]
+adjacentColumns 1 = [2]
+adjacentColumns 16 = [15]
+adjacentColumns j = [j - 1, j + 1]
+
+adjacentRows :: Int -> [Int]
+adjacentRows 1 = [2]
+adjacentRows 11 = [10]
+adjacentRows i = [i - 1, i + 1]
+
 
 applyAll :: (a -> b -> b) -> [a] -> b -> b
 applyAll  = flip . foldr
