@@ -20,6 +20,7 @@ import Data.Maybe (fromJust)
 import Tigris.Data
 import Control.Applicative ((<|>))
 import Data.Set (Set)
+import Debug.Trace (trace)
 
 
 startingPlayerInfo :: Hand -> PlayerInfo
@@ -74,7 +75,7 @@ playInteraction interactions' interaction (currentPlayer:subsequentPlayers) game
     applyAction (ReplaceTiles discards) = continue =<< maybe (Left $ determineWinners game) Right ((playerAndBag . state (at currentPlayer . traverse . hand)) (dealUpToSix . (<>) discards) game)
     applyAction PlayCatastrophe = undefined
     applyAction (PlaceTile _ _) = undefined
-    applyAction (PositionLeader sphere leaderPosition) = uncurry resolveAnyRevolts $ (board (placeLeader leader leaderPosition)) game where
+    applyAction (PositionLeader sphere leaderPosition) = trace "here" $ uncurry resolveAnyRevolts $ (board (placeLeader leader leaderPosition)) game where
       leader = Leader currentPlayer sphere
       resolveAnyRevolts (region, leaders') = maybe (continue . addLeaderToRegion leader region) revolt $ firstJust matchingLeader leaders' where
         revolt dynasty = Right . PlayingState (RevoltAttack (RevoltDetails {_revoltDefender = dynasty, _revoltSphere = sphere})) (currentPlayer:subsequentPlayers)

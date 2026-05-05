@@ -54,7 +54,7 @@ module Tigris.Data
 where
 
 import Control.Lens (makeLenses, ix, set, over)
-import Data.Aeson (FromJSON, ToJSON, ToJSONKey)
+import Data.Aeson (FromJSON, ToJSON, ToJSONKey, FromJSONKey)
 import GHC.Generics (Generic)
 import Data.Map (Map)
 import Data.Set (Set)
@@ -70,6 +70,8 @@ data Sphere = Temples | Markets | Settlements | Farms deriving (Show, Eq, Ord, G
 type Tile = Sphere 
 instance ToJSON Sphere
 instance ToJSONKey Sphere
+instance FromJSON Sphere
+instance FromJSONKey Sphere
 data Dynasty = Archer | Bull | Pot | Lion deriving (Eq, Ord, Generic, Show)
 instance FromJSON Dynasty
 instance ToJSON Dynasty
@@ -191,4 +193,11 @@ markingText :: Marking -> Text
 markingText Sand = "sand"
 markingText River = "river"
 
+data CommittedTemples = CommittedTemples { value :: Int} deriving Generic
+instance ToJSON CommittedTemples
+instance FromJSON CommittedTemples
 instance ToJSON Action
+instance FromJSON Action
+
+
+
