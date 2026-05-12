@@ -18,13 +18,17 @@ import Control.Monad.State (StateT(..), runStateT)
 import Data.Monoid (Sum(..))
 import Data.Maybe (fromJust)
 import Tigris.Data
-import Control.Applicative ((<|>))
 import Data.Set (Set)
+import qualified Data.Set as Set
 import Debug.Trace (trace)
+import Data.Bimap (Bimap)
+import qualified Data.Bimap as Bimap
+import Data.Foldable (fold)
+
 
 
 startingPlayerInfo :: Hand -> PlayerInfo
-startingPlayerInfo startingHand = PlayerInfo{_score = startingScore, _hand = startingHand, _catastropheTiles = 2}
+startingPlayerInfo startingHand = PlayerInfo{_score = startingScore, _hand = startingHand, _catastropheTiles = 2, _playerLeadersInHand = spheres}
 
 one :: a -> Bag a 
 one a = Map.singleton a (Sum 1)
@@ -41,29 +45,32 @@ bagToList = Map.foldrWithKey f [] where
   f k (Sum n) ts = replicate n k <> ts
 
 emptyHand :: Hand
-emptyHand = Map.fromList $ allSpheresZero
+emptyHand = allSpheresZero
 
-setupGame :: (MonadRandom m) => Map Dynasty a -> m PlayingState
+setupGame :: (MonadRandom m) => Bimap Dynasty a -> m PlayingState
 setupGame m = fromShuffled <$> shuffleM dynasties <*> shuffleM (bagToList tilesMinusStartingTemples)
   where
-    fromShuffled dynasties' tiles = PlayingState (Turn FirstAction) (cycle dynasties) (Game {_bag = remainingTiles, _players = fmap startingPlayerInfo startingPlayerHand, _board = startingBoard}) where
+    fromShuffled dynasties' tiles = PlayingState (Turn FirstAction) (cycle dynasties') (Game {_bag = remainingTiles, _players = fmap startingPlayerInfo startingPlayerHand, _board = startingBoard}) where
       (startingPlayerHand, remainingTiles) = fromJust $ state traverse dealUpToSix (emptyHands, tiles)
       emptyHands = Map.fromList $ map (,emptyHand) dynasties'
-    dynasties = Map.keys m
+    dynasties = Bimap.keys m
 
 winners :: Map Dynasty Score -> Winners
 winners finalScores' = snd . Map.findMax $ Map.foldMapWithKey groupByScore finalScores' where
   groupByScore k v = Map.singleton (sort $ Map.elems v) [k]
 
 
-allSpheresZero :: [(Sphere, Sum Int)]
-allSpheresZero = map (,0) spheres
+allSpheresZero :: Map Sphere (Sum Int)
+allSpheresZero = Map.fromSet (const 0) spheres
 
 startingScore :: Score
-startingScore = Map.fromList $ allSpheresZero
+startingScore = Map.fromSet (const 0) scoreAreas
 
-spheres :: [Sphere]
-spheres = [Settlements, Temples, Farms, Markets]
+spheres :: Set Sphere
+spheres = Set.fromList [Settlements, Temples, Farms, Markets]
+
+scoreAreas :: Set ScoreArea
+scoreAreas = Set.insert Treasure $ Set.map SphereScore spheres
 
 playGame :: Monad m => (Dynasty -> Interactions m) -> (PlayingState -> m Winners) -> PlayingState -> m Winners
 playGame interactions recurse (PlayingState turn playerOrder game) = either pure recurse =<< playInteraction interactions turn playerOrder game
@@ -75,10 +82,8 @@ playInteraction interactions' interaction (currentPlayer:subsequentPlayers) game
     applyAction (ReplaceTiles discards) = continue =<< maybe (Left $ determineWinners game) Right ((playerAndBag . state (at currentPlayer . traverse . hand)) (dealUpToSix . (<>) discards) game)
     applyAction PlayCatastrophe = undefined
     applyAction (PlaceTile _ _) = undefined
-    applyAction (PositionLeader sphere leaderPosition) = trace "here" $ uncurry resolveAnyRevolts $ (board (placeLeader leader leaderPosition)) game where
-      leader = Leader currentPlayer sphere
-      resolveAnyRevolts (region, leaders') = maybe (continue . addLeaderToRegion leader region) revolt $ firstJust matchingLeader leaders' where
-        revolt dynasty = Right . PlayingState (RevoltAttack (RevoltDetails {_revoltDefender = dynasty, _revoltSphere = sphere})) (currentPlayer:subsequentPlayers)
+    applyAction (PositionLeader sphere leaderPosition) = trace "here" (continue . placeLeader currentPlayer sphere leaderPosition) game 
+    --        revolt dynasty = Right . PlayingState (RevoltAttack (RevoltDetails {_revoltDefender = dynasty, _revoltSphere = sphere})) (currentPlayer:subsequentPlayers)
     nextPlayer = PlayingState (Turn FirstAction) subsequentPlayers 
     endTurn game' = maybe (Left $ determineWinners game') (Right . nextPlayer) (guard continueIfEnoughTreasures *> refreshHands game) where
       continueIfEnoughTreasures = view (board . numberOfTreasuresLeft) game' > 2
@@ -92,15 +97,18 @@ playInteraction interactions' interaction (currentPlayer:subsequentPlayers) game
     playerInteractions = interactions' currentPlayer
 playInteraction _ _ [] _ = undefined
 
-addLeaderToRegion :: Leader -> Region -> Game -> Game
-addLeaderToRegion = undefined
+--addLeaderToRegion :: Leader -> Region -> Game -> Game
+--addLeaderToRegion = undefined
 
-placeLeader :: Leader -> Maybe Position -> Board -> ((Region, Set Leader), Board)
-placeLeader = undefined
---placeLeader leader newPosition = uncurry (over grid . moveLeader )  . (leaderPositions . at leader) (, newPosition) where
---  moveLeader oldPosition = maybe id addToGrid newPosition . maybe id removeFromGrid oldPosition
---  removeFromGrid position = set (at position . traverse . placedPiece)  Nothing
---  addToGrid position = set (at position. traverse . placedPiece) . Just $ PlacedLeader leader
+placeLeader :: Dynasty -> Sphere -> Maybe Position -> Game -> Game
+placeLeader dynasty sphere maybePosition = maybe addToHand addToBoard maybePosition . uncurry (maybe removeFromHand removeFromBoard) . swapOutLeaderPosition where
+  swapOutLeaderPosition = (board . leaderPositions . at (Leader dynasty sphere)) (, maybePosition)
+  addToBoard position = set (slot' position) (Just $ LeaderPiece dynasty sphere) 
+  addToHand = over playerLeadersInHand' $ Set.insert sphere 
+  removeFromBoard position = set (slot' position) Nothing
+  removeFromHand = over playerLeadersInHand' $ Set.delete sphere
+  playerLeadersInHand' = players . at dynasty . traverse . playerLeadersInHand
+  slot' position = board . grid . ix position . slot
 
 
 
@@ -141,15 +149,8 @@ determineWinners = winners . fmap (view score) . view players
 --opposingLeader :: Sphere -> Position -> Grid -> Maybe Dynasty
 --opposingLeader sphere position = firstJust matchingLeader . view (at position . traverse . leaders)
 
-firstJust :: Foldable f => (a -> Maybe b) -> f a -> Maybe b
-firstJust f = foldr ((<|>) . f) Nothing
-
-matchingLeader :: Leader -> Maybe Dynasty
-matchingLeader = undefined
-
-
-
-
+--firstJust :: Foldable f => (a -> Maybe b) -> f a -> Maybe b
+--firstJust f = foldr ((<|>) . f) Nothing
 
 --endTurn :: Game -> Either Winners Game
 --endTurn = orDetermineWinners . playerAndBag $ state (traverse . hand) dealUpToSix
@@ -158,9 +159,13 @@ state :: ((a -> StateT st f b) -> s -> StateT st f t) -> (a -> StateT st f b) ->
 state l f (s, st) = runStateT (l f s) st
 
 dealUpToSix :: Hand -> StateT [Sphere] Maybe Hand
-dealUpToSix playerTiles = foldr (>=>) pure (replicate (6 - length playerTiles) (StateT . dealOne)) playerTiles where
+dealUpToSix playerTiles = foldr (>=>) pure (replicate (6 - total playerTiles) (StateT . dealOne)) playerTiles where
   dealOne playerTiles' (x:xs) = Just (one x <> playerTiles', xs)
   dealOne _ [] = Nothing
+
+total :: Bag a -> Int
+total = getSum . fold
+
 
 playerAndBag :: Functor f => ((PlayerInfos, [Tile]) -> f (PlayerInfos, [Tile])) -> Game -> f Game
 playerAndBag f game' = (\(_players, _bag) -> game'{_players, _bag}) <$> f (_players game', _bag game')

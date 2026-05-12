@@ -6,7 +6,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module Lib (ChooseRoleHtml, NoughtOrCross, PlayerId(..), keepAlive, sendHtml, encodeToText, recursing, GameId, Actions(..), Player(..), returning, Table(..), GameTVars(..), GameKey(..), actions, newGame, table, nextMessageFromAnyPlayer, nextValidMessageFromAnyPlayer, notify, WebSocketContainer(..), gameDiv) where
+module Lib (ChooseRoleHtml, NoughtOrCross, PlayerId(..), keepAlive, sendHtml, encodeToText, recursing, GameId, Actions(..), Player(..), returning, Table(..), GameTVars(..), GameKey(..), actions, newGame, table, nextMessageFromAnyPlayer, nextValidMessageFromAnyPlayer, notify, WebSocketContainer(..), gameDiv, xData) where
 
 import BasicPrelude
 import Control.Concurrent (forkIO)
@@ -25,6 +25,7 @@ import Servant
 import Servant.API.WebSocket (WebSocket)
 import Text.StringRandom (stringRandomIO)
 import Lucid.Html5
+import Lucid (term, Attributes)
 
 
 generateGameId :: IO GameId
@@ -173,3 +174,6 @@ nextValidMessageFromAnyPlayer playerInputs = nextValidMessageFromAnyPlayer' wher
 
 gameDiv :: Html () -> Html ()
 gameDiv = div_ [id_ "game"] 
+
+xData :: Text -> Attributes
+xData = term "x-data" 

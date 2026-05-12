@@ -109,3 +109,36 @@ button.start-game:hover {
 .clickable {
   border: 2px solid red;
 }
+.markets {
+  background-color: green;
+}
+.farms {
+  background-color: blue;
+}
+.settlements {
+  background-color: black;
+}
+.treasure {
+  background-color: gold;
+}
+
+.leaders {
+  display: grid;
+  grid-template-columns: repeat(4, 75px); /* 16 columns, 100px each */
+  gap: 1em;
+}
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 75px); /* 16 columns, 100px each */
+  gap: 1em;
+}
+
+.hand {
+  color: white;
+}
+
+.scores {
+  display: grid;
+  grid-template-columns: repeat(5, 75px); /* 16 columns, 100px each */
+  gap: 1em;
+}

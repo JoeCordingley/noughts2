@@ -17,7 +17,6 @@ module Tigris.Data
     board,
     Board (..),
     numberOfTreasuresLeft,
-    leaderPositions,
     grid,
     Grid,
     LeaderPositions,
@@ -42,14 +41,17 @@ module Tigris.Data
     Region,
     Interactions (..),
     EmptySpace(..),
+    ScoreArea(..),
     startingBoard,
     leaderDynasty,
-    regions,
     slot,
     area,
     sphereText,
+    dynastyText,
     markingText,
-    nextToTemples
+    nextToTemples,
+    playerLeadersInHand,
+    leaderPositions
   )
 where
 
@@ -57,12 +59,11 @@ import Control.Lens (makeLenses, ix, set, over)
 import Data.Aeson (FromJSON, ToJSON, ToJSONKey, FromJSONKey)
 import GHC.Generics (Generic)
 import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Set (Set)
-import qualified Data.Set as Set
 import Data.Monoid (Sum)
 import Data.Semigroup (Min)
 import Data.Array (Array, array)
-import qualified Data.Map as Map
 import Data.Text (Text)
 
 data Sphere = Temples | Markets | Settlements | Farms deriving (Show, Eq, Ord, Generic)
@@ -78,7 +79,7 @@ instance ToJSON Dynasty
 
 
 emptyBoard :: Board 
-emptyBoard = Board {_numberOfTreasuresLeft = 10, _leaderPositions = Map.empty, _grid = emptyGrid, _regions = Map.empty}
+emptyBoard = Board {_numberOfTreasuresLeft = 10,  _grid = emptyGrid, _leaderPositions = Map.empty}
 
 
 emptyGrid :: Grid
@@ -100,7 +101,7 @@ emptyGrid = array ((1,1), (11,16)) $ do
       , replicate 16 Sand
       , replicate 16 Sand
       ]
-    empty marking = Space {_marking = marking, _slot = Left (EmptySpace{_borderingRegions = Set.empty}), _nextToTemples = False}
+    empty marking = Space {_marking = marking, _slot = Nothing, _nextToTemples = False}
 
 data Leader = Leader {_leaderDynasty :: Dynasty, _leaderSphere :: Sphere} deriving (Show, Eq, Ord)
 
@@ -115,9 +116,7 @@ data RevoltDetails = RevoltDetails { _revoltDefender :: Dynasty, _revoltSphere :
 
 type PlayerInfos = Map Dynasty PlayerInfo
 
-data Board = Board {_numberOfTreasuresLeft :: Int, _leaderPositions :: LeaderPositions, _grid :: Grid, _regions :: Regions} deriving Show
-
-type Regions = Map RegionKey Region
+data Board = Board {_numberOfTreasuresLeft :: Int,  _grid :: Grid, _leaderPositions :: Map Leader Position} deriving Show
 
 type Grid = Array Position Space
 
@@ -125,12 +124,12 @@ type LeaderPositions = Map Leader Position
 
 data Region = Region { _area :: Set Space, _leaders :: Set Leader } deriving Show
 
-data PlayerInfo = PlayerInfo {_score :: Score, _hand :: Bag Sphere, _catastropheTiles :: Int} deriving Show
+data PlayerInfo = PlayerInfo {_score :: Score, _hand :: Bag Sphere, _catastropheTiles :: Int, _playerLeadersInHand :: Set Sphere} deriving Show
 
-data Space = Space {_marking :: Marking, _slot :: Either EmptySpace Piece, _nextToTemples :: Bool} deriving Show
+data Space = Space {_marking :: Marking, _slot :: Maybe Piece, _nextToTemples :: Bool} deriving Show
 
 data EmptySpace = EmptySpace {_borderingRegions :: Set RegionKey} deriving Show
-data Piece = LeaderPiece Sphere | TilePiece Sphere deriving Show
+data Piece = LeaderPiece Dynasty Sphere | TilePiece Sphere deriving Show
 
 type RegionKey = Min Space
 
@@ -140,7 +139,9 @@ type Bag a = Map a (Sum Int)
 
 type Hand = Bag Sphere
 
-type Score = Map Sphere (Sum Int)
+type Score = Map ScoreArea (Sum Int)
+
+data ScoreArea = SphereScore Sphere | Treasure deriving (Show, Eq, Ord)
 
 type Winners = [Dynasty]
 
@@ -163,7 +164,7 @@ startingBoard = putTemples emptyBoard where
     temples = [(1,11), (2,2), (2,16), (3,6), (5,14), (7,9), (8,2), (9,15), (10,6), (11,11)]
 
 putTemple :: Position -> Board -> Board
-putTemple position = over grid $ applyAll setTempleAdjacent (adjacentPositions position) . set (ix position . slot) (Right (TilePiece Temples)) where
+putTemple position = over grid $ applyAll setTempleAdjacent (adjacentPositions position) . set (ix position . slot) (Just (TilePiece Temples)) where
   setTempleAdjacent adjacency = set (ix adjacency . nextToTemples) True
 
 adjacentPositions :: Position -> [Position]
@@ -189,6 +190,12 @@ sphereText Markets = "markets"
 sphereText Settlements = "settlements"
 sphereText Farms = "farms"
 
+dynastyText :: Dynasty -> Text
+dynastyText Archer = "archer"
+dynastyText Bull = "bull"
+dynastyText Pot = "pot"
+dynastyText Lion = "lion"
+
 markingText :: Marking -> Text
 markingText Sand = "sand"
 markingText River = "river"
@@ -198,6 +205,5 @@ instance ToJSON CommittedTemples
 instance FromJSON CommittedTemples
 instance ToJSON Action
 instance FromJSON Action
-
 
 
