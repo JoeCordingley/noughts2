@@ -65,6 +65,7 @@ import Data.Monoid (Sum)
 import Data.Semigroup (Min)
 import Data.Array (Array, array)
 import Data.Text (Text)
+import Bag (Bag)
 
 data Sphere = Temples | Markets | Settlements | Farms deriving (Show, Eq, Ord, Generic)
 
@@ -135,7 +136,6 @@ type RegionKey = Min Space
 
 data Marking = Sand | River deriving Show
 
-type Bag a = Map a (Sum Int)
 
 type Hand = Bag Sphere
 
