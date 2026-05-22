@@ -99,7 +99,7 @@ data HtmlModel = HtmlModel {htmlGrid :: Grid, playerModel :: Maybe PlayerHtmlMod
 data PlayerHtmlModel = PlayerHtmlModel {isCurrentPlayer :: Bool, leadersInHand :: Set Sphere, tilesInHand :: Map Sphere Int, playerScore :: Map ScoreArea Int}
 
 htmlModel :: DynastyMap -> PlayingState -> Player -> HtmlModel
-htmlModel m (PlayingState _ dynasties game) player = case dynasties of
+htmlModel m (PlayingState (GameStage dynasties _) game) player = case dynasties of
   (currentPlayer:_) -> HtmlModel { htmlGrid = (view (board . grid) game), playerModel } where
     playerModel = do
       playerDynasty <- Bimap.lookupR player m

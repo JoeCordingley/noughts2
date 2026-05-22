@@ -37,6 +37,7 @@ module Tigris.Data
     Interaction (..),
     ActionNumber (..),
     PlayingState(..),
+    GameStage(..),
     RevoltDetails(..),
     Region,
     Interactions (..),
@@ -106,7 +107,8 @@ emptyGrid = array ((1,1), (11,16)) $ do
 
 data Leader = Leader {_leaderDynasty :: Dynasty, _leaderSphere :: Sphere} deriving (Show, Eq, Ord)
 
-data PlayingState = PlayingState Interaction [Dynasty] Game deriving Show
+data PlayingState = PlayingState GameStage Game deriving Show
+data GameStage = GameStage [Dynasty] Interaction deriving Show
 
 data Game = Game {_bag :: [Sphere], _players :: Map Dynasty PlayerInfo, _board :: Board} deriving (Show)
 
