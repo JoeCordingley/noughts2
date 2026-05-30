@@ -8,9 +8,9 @@ import Network.Wai.Handler.Warp (run)
 
 runServer :: IO ()
 runServer = do
-  putStrLn "Running on http://localhost:8080/"
+  putStrLn "Running on http://localhost:8081/"
   server <- startServer
-  run 8080 (serve (Proxy :: Proxy Api) server)
+  run 8081 (serve (Proxy :: Proxy Api) server)
 
 startServer :: IO (Server Api)
 startServer = joinHandlers <$> Tigris.gameServer 

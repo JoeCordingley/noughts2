@@ -6,7 +6,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module Lib (ChooseRoleHtml, NoughtOrCross, PlayerId(..), keepAlive, sendHtml, encodeToText, recursing, GameId, Actions(..), Player(..), returning, Table(..), GameTVars(..), GameKey(..), actions, newGame, table, nextMessageFromAnyPlayer, nextValidMessageFromAnyPlayer, notify, WebSocketContainer(..), gameDiv, xData) where
+module Lib (ChooseRoleHtml, NoughtOrCross, PlayerId(..), keepAlive, sendHtml, encodeToText, recursing, GameId, Actions(..), Player(..), returning, Table(..), GameTVars(..), GameKey(..), actions, newGame, table, nextMessageFromAnyPlayer, nextValidMessageFromAnyPlayer, notify, WebSocketContainer(..), gameDiv, xData, onFirst, onSecond) where
 
 import BasicPrelude
 import Control.Concurrent (forkIO)
@@ -14,7 +14,9 @@ import Control.Concurrent.Async (cancel, withAsync)
 import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, modifyTVar', newTQueueIO, newTVar, orElse, readTQueue, readTVar, readTVarIO, retry, writeTQueue, writeTVar)
 import Data.Aeson (FromJSON, ToJSON, eitherDecodeStrict)
 import Data.Aeson.Text (encodeToLazyText)
+import Data.Functor.Compose
 import qualified Data.Map as Map
+import Control.Monad.State (StateT(..), runStateT)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import GHC.Conc (threadDelay)
@@ -177,3 +179,11 @@ gameDiv = div_ [id_ "game"]
 
 xData :: Text -> Attributes
 xData = term "x-data" 
+
+onSecond :: ((a -> Compose f g b) -> s -> Compose f g t) -> ((c, a) -> f (g b)) -> (c, s) -> f (g t)
+onSecond l f (c, s) = getCompose $ l g s where
+  g a = Compose $ f (c, a)
+
+onFirst :: ((a -> StateT c f b) -> s -> StateT c f t) -> ((a, c) -> f (b, c)) -> (s, c) -> f (t, c)
+onFirst l f (s, c) = runStateT (l g s) c where
+  g a = StateT (curry f a)

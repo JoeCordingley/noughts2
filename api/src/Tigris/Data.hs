@@ -18,12 +18,15 @@ module Tigris.Data
     Board (..),
     numberOfTreasuresLeft,
     grid,
+    influence,
+    Influence(..),
     Grid,
     LeaderPositions,
     PlayerInfo (..),
     score,
     hand,
     catastropheTiles,
+    adjacentPositions,
     Space (..),
     marking,
     Piece (..),
@@ -43,6 +46,8 @@ module Tigris.Data
     Interactions (..),
     EmptySpace(..),
     ScoreArea(..),
+    AreaKey(..),
+    areas,
     startingBoard,
     leaderDynasty,
     slot,
@@ -62,6 +67,7 @@ import GHC.Generics (Generic)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Monoid (Sum)
 import Data.Semigroup (Min)
 import Data.Array (Array, array)
@@ -81,7 +87,7 @@ instance ToJSON Dynasty
 
 
 emptyBoard :: Board 
-emptyBoard = Board {_numberOfTreasuresLeft = 10,  _grid = emptyGrid, _leaderPositions = Map.empty}
+emptyBoard = Board {_numberOfTreasuresLeft = 10,  _grid = emptyGrid, _leaderPositions = Map.empty, _influence = Map.empty}
 
 
 emptyGrid :: Grid
@@ -103,7 +109,7 @@ emptyGrid = array ((1,1), (11,16)) $ do
       , replicate 16 Sand
       , replicate 16 Sand
       ]
-    empty marking = Space {_marking = marking, _slot = Nothing, _nextToTemples = False}
+    empty marking = Space {_marking = marking, _slot = Nothing, _nextToTemples = False, _areas = Set.empty}
 
 data Leader = Leader {_leaderDynasty :: Dynasty, _leaderSphere :: Sphere} deriving (Show, Eq, Ord)
 
@@ -115,11 +121,13 @@ data Game = Game {_bag :: [Sphere], _players :: Map Dynasty PlayerInfo, _board :
 data ActionNumber = FirstAction | SecondAction  deriving (Show)
 data Interaction = Turn ActionNumber | RevoltAttack RevoltDetails | RevoltDefence RevoltDetails deriving Show
 
-data RevoltDetails = RevoltDetails { _revoltDefender :: Dynasty, _revoltSphere :: Sphere} deriving (Show)
+data RevoltDetails = RevoltDetails { _revoltSphere :: Sphere, _revoltArea :: Set Leader, _revoltDefender :: Dynasty} deriving (Show)
 
 type PlayerInfos = Map Dynasty PlayerInfo
 
-data Board = Board {_numberOfTreasuresLeft :: Int,  _grid :: Grid, _leaderPositions :: Map Leader Position} deriving Show
+data Board = Board {_numberOfTreasuresLeft :: Int,  _grid :: Grid, _leaderPositions :: Map Leader Position, _influence :: Map AreaKey Influence} deriving Show
+
+data Influence = Influence {_region :: Set Position, _surrounds :: Set Position} deriving Show
 
 type Grid = Array Position Space
 
@@ -129,7 +137,14 @@ data Region = Region { _area :: Set Space, _leaders :: Set Leader } deriving Sho
 
 data PlayerInfo = PlayerInfo {_score :: Score, _hand :: Bag Sphere, _catastropheTiles :: Int, _playerLeadersInHand :: Set Sphere} deriving Show
 
-data Space = Space {_marking :: Marking, _slot :: Maybe Piece, _nextToTemples :: Bool} deriving Show
+data Space = Space {_marking :: Marking, _slot :: Maybe Piece, _nextToTemples :: Bool, _areas :: Set AreaKey} deriving Show
+
+data AreaKey = RegionKey (Min Position) | KingdomKey (Set Leader) deriving (Show, Eq, Ord)
+instance Semigroup AreaKey where
+  RegionKey x <> RegionKey y = RegionKey $ x <> y
+  KingdomKey x <> KingdomKey y = KingdomKey $ x <> y
+  KingdomKey x <> RegionKey _ = KingdomKey x 
+  RegionKey _ <> KingdomKey y = KingdomKey y
 
 data EmptySpace = EmptySpace {_borderingRegions :: Set RegionKey} deriving Show
 data Piece = LeaderPiece Dynasty Sphere | TilePiece Sphere deriving Show
