@@ -1,4 +1,4 @@
-module Bag (Bag, one, addAll, fromFoldable, size) where
+module Bag (Bag, one, addAll, fromFoldable, size, insert) where
 
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -12,6 +12,9 @@ one a = Map.singleton a (Sum 1)
 
 addAll :: (Ord a , Foldable f) => f a -> Bag a -> Bag a
 addAll = (<>) . fromFoldable
+
+insert :: Ord a => a -> Bag a -> Bag a
+insert a = (<> one a)
 
 fromFoldable :: (Ord a , Foldable f) => f a -> Bag a 
 fromFoldable = foldMap one

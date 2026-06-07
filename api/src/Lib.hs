@@ -187,3 +187,8 @@ onSecond l f (c, s) = getCompose $ l g s where
 onFirst :: ((a -> StateT c f b) -> s -> StateT c f t) -> ((a, c) -> f (b, c)) -> (s, c) -> f (t, c)
 onFirst l f (s, c) = runStateT (l g s) c where
   g a = StateT (curry f a)
+
+--traversek :: Monad f => (a -> f (Bool, a)) -> [a] -> f (Bool, [a])
+--traversek f [] = return (False, [])
+--traversek f (a:as) = uncurry (bool continue (return . (True,). (:as)) ) =<< f a where
+--  continue  = ($ traversek f as) . fmap . second . (:)
