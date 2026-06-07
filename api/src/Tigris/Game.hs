@@ -73,20 +73,21 @@ scoreAreas :: Set ScoreArea
 scoreAreas = Set.insert Treasure $ Set.map SphereScore spheres
 
 playGame :: (Monad m) => (Dynasty -> Interactions m) -> (PlayingState -> m (Winners, Game)) -> PlayingState -> m (Winners, Game)
-playGame interactions recurse (PlayingState gameStage game) = uncurry (either pure' recurse') =<< runES (playInteraction interactions gameStage) game
+playGame interactions recurse (PlayingState gameStage game) = uncurry (either pure' recurse') =<< runStateT (playInteraction interactions gameStage) game
   where
     pure' winners' game' = pure (winners', game')
     recurse' gamestage' game' = recurse (PlayingState gamestage' game')
 
-applyAction :: [Dynasty] -> ActionNumber -> Action -> ES Winners Game GameStage
-applyAction (currentPlayer : subsequentPlayers) actionNumber action = case action of
+applyAction :: [Dynasty] -> ActionNumber -> Action -> State Game (Maybe GameStage)
+applyAction (currentPlayer : subsequentPlayers) actionNumber action = runMaybeT $ case action of
   Pass -> endTurn
-  (ReplaceTiles discards) -> continue << maybeDetermineWinners replaceTiles
+  (ReplaceTiles discards) -> replaceTiles *> continue
     where
-      replaceTiles = (playersAndBag . onFirst (at currentPlayer . traverse . hand)) (dealHand . first (<> discards))
+      replaceTiles = zoomMaybe (playersAndBag . onFirst (at currentPlayer . traverse . hand)) (lift removeDiscards *> dealHand)
+      removeDiscards = _1 %= (<> discards)
   PlayCatastrophe -> undefined
   (PlaceTile _ _) -> undefined
-  (PositionLeader sphere position) -> maybe continue (pure . GameStage (currentPlayer : subsequentPlayers) . RevoltAttack) =<< EST (lift positionLeader)
+  (PositionLeader sphere position) -> maybe continue (pure . continueWithRevolt) =<< lift positionLeader
     where
       positionLeader = runMaybeT . foldMapA (MaybeT . revoltOrAddInfluence) =<< placeLeader currentPlayer sphere position
       revoltOrAddInfluence :: AreaKey -> State Game (Maybe RevoltDetails)
@@ -97,19 +98,62 @@ applyAction (currentPlayer : subsequentPlayers) actionNumber action = case actio
         where
           fromLeader (Leader opponent sphere') = if sphere == sphere' then Just RevoltDetails {_revoltSphere = sphere, _revoltDefender = opponent, _revoltArea = leaders'} else Nothing
       revoltDetails _ = Nothing
+      continueWithRevolt = GameStage (currentPlayer : subsequentPlayers) . RevoltAttack
   where
-    endTurn = nextPlayer <$ refreshHands << finishDueToTreasures
-    finishDueToTreasures = fromStateT (inWhichCaseDetermineWinners =<< uses (board . numberOfTreasuresLeft) (<= 2))
-    inWhichCaseDetermineWinners = bool (pure $ Right ()) (Left <$> determineWinners)
-    refreshHands = maybeDetermineWinners dealHands
-    maybeDetermineWinners f = fromStateT (inWhichCaseDetermineWinners =<< state (orPassThrough f))
+    endTurn = do
+      treasuresLeft <- lift $ use (board . numberOfTreasuresLeft)
+      guard $ treasuresLeft > 2
+      refreshHands
+      return nextPlayer
     nextPlayer = GameStage subsequentPlayers $ Turn FirstAction
-    dealHands = (playersAndBag . onFirst (traverse . hand)) dealHand
-    dealHand (hand', bag') = nest (6 - Bag.size hand') (uncurry dealOne) (hand', bag')
+    refreshHands = zoomMaybe (playersAndBag . onFirst (traverse . hand)) dealHand
+    dealHand = do
+      handSize <- lift $ gets (Bag.size . fst)
+      replicateM_ (6 - handSize) dealOne'
+    dealOne' = MaybeT . state . orPassThrough $ uncurry dealOne
     continue = case actionNumber of
-      SecondAction -> endTurn
       FirstAction -> pure . GameStage (currentPlayer : subsequentPlayers) $ Turn SecondAction
+      SecondAction -> endTurn
 applyAction _ _ _ = undefined
+
+zoomMaybe :: ((s -> (Maybe a, s)) -> t -> (Maybe a, t)) -> MaybeT (State s) a -> MaybeT (State t) a
+zoomMaybe l = MaybeT . state . l . runState . runMaybeT
+
+-- zoomMaybe l = (mapMaybeT . mapState) f where
+--  f (b, s)
+
+-- applyAction :: [Dynasty] -> ActionNumber -> Action -> ES Winners Game GameStage
+-- applyAction (currentPlayer : subsequentPlayers) actionNumber action = case action of
+--  Pass -> endTurn
+--  (ReplaceTiles discards) -> continue << maybeDetermineWinners replaceTiles
+--    where
+--      replaceTiles = (playersAndBag . onFirst (at currentPlayer . traverse . hand)) (dealHand . first (<> discards))
+--  PlayCatastrophe -> undefined
+--  (PlaceTile _ _) -> undefined
+--  (PositionLeader sphere position) -> maybe continue (pure . GameStage (currentPlayer : subsequentPlayers) . RevoltAttack) =<< EST (lift positionLeader)
+--    where
+--      positionLeader = runMaybeT . foldMapA (MaybeT . revoltOrAddInfluence) =<< placeLeader currentPlayer sphere position
+--      revoltOrAddInfluence :: AreaKey -> State Game (Maybe RevoltDetails)
+--      revoltOrAddInfluence areaKey = maybe (state ((Nothing,) . updateInfluence')) (pure . Just) $ revoltDetails areaKey
+--        where
+--          updateInfluence' = (flip . foldr) (addLeaderToRegion (Leader currentPlayer sphere) areaKey) position
+--      revoltDetails (KingdomKey leaders') = foldMapA fromLeader leaders'
+--        where
+--          fromLeader (Leader opponent sphere') = if sphere == sphere' then Just RevoltDetails {_revoltSphere = sphere, _revoltDefender = opponent, _revoltArea = leaders'} else Nothing
+--      revoltDetails _ = Nothing
+--  where
+--    endTurn = nextPlayer <$ refreshHands << finishDueToTreasures
+--    finishDueToTreasures = fromStateT (inWhichCaseDetermineWinners =<< uses (board . numberOfTreasuresLeft) (<= 2))
+--    inWhichCaseDetermineWinners = bool (pure $ Right ()) (Left <$> determineWinners)
+--    refreshHands = maybeDetermineWinners dealHands
+--    maybeDetermineWinners f = fromStateT (inWhichCaseDetermineWinners =<< state (orPassThrough f))
+--    nextPlayer = GameStage subsequentPlayers $ Turn FirstAction
+--    dealHands = (playersAndBag . onFirst (traverse . hand)) dealHand
+--    dealHand (hand', bag') = nest (6 - Bag.size hand') (uncurry dealOne) (hand', bag')
+--    continue = case actionNumber of
+--      SecondAction -> endTurn
+--      FirstAction -> pure . GameStage (currentPlayer : subsequentPlayers) $ Turn SecondAction
+-- applyAction _ _ _ = undefined
 
 newtype EST e s m a = EST {toExceptT :: ExceptT e (StateT s m) a}
 
@@ -137,11 +181,11 @@ runES (EST es) s = runStateT (runExceptT es) s
 mapES :: (m (Either e a, s) -> m' (Either e' a', s)) -> EST e s m a -> EST e' s m' a'
 mapES f (EST es) = EST $ (mapExceptT . mapStateT) f es
 
-playInteraction :: (Monad m) => (Dynasty -> Interactions m) -> GameStage -> EST Winners Game m GameStage
+playInteraction :: (Monad m) => (Dynasty -> Interactions m) -> GameStage -> StateT Game m (Either Winners GameStage)
 playInteraction interactions' (GameStage (currentPlayer : subsequentPlayers) interaction) = case interaction of
   RevoltDefence _ -> undefined
   RevoltAttack _ -> undefined
-  Turn turnNumber -> mapES coerce . applyAction (currentPlayer : subsequentPlayers) turnNumber =<< lift (getAction playerInteractions)
+  Turn turnNumber -> mapStateT coerce . (maybe (Left <$> determineWinners) (pure . Right) <=< applyAction (currentPlayer : subsequentPlayers) turnNumber) =<< lift (getAction playerInteractions)
     where
       playerInteractions = interactions' currentPlayer
 playInteraction _ _ = undefined
@@ -160,8 +204,10 @@ dealOne hand' = fmap (first addToHand) . uncons
   where
     addToHand a = (hand' <> Bag.one a)
 
-orPassThrough :: (a -> Maybe a) -> a -> (Bool, a)
-orPassThrough f a = maybe (True, a) (False,) $ f a
+orPassThrough :: (a -> Maybe a) -> a -> (Maybe (), a)
+orPassThrough f a = (void ma, fromMaybe a ma)
+  where
+    ma = f a
 
 -- orFinish :: (a -> Maybe a) -> a -> (IsFinished, a)
 -- orFinish f a = maybe (IsFinished True, a) (IsFinished False,) $ f a
