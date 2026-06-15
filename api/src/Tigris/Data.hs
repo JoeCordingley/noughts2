@@ -1,11 +1,13 @@
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module Tigris.Data
   ( Sphere (..),
-    Tile ,
+    Tile,
     Dynasty (..),
     Leader (..),
     leaderSphere,
@@ -19,7 +21,7 @@ module Tigris.Data
     numberOfTreasuresLeft,
     grid,
     influence,
-    Influence(..),
+    Influence (..),
     Grid,
     LeaderPositions,
     PlayerInfo (..),
@@ -36,17 +38,19 @@ module Tigris.Data
     Score,
     Winners,
     Action (..),
-    Position ,
+    Position,
     Interaction (..),
     ActionNumber (..),
-    PlayingState(..),
-    GameStage(..),
-    RevoltDetails(..),
+    PlayingState (..),
+    GameStage (..),
+    RevoltDetails (..),
+    RevoltDefenceDetails (..),
     Region,
     Interactions (..),
-    EmptySpace(..),
-    ScoreArea(..),
-    AreaKey(..),
+    EmptySpace (..),
+    ScoreArea (..),
+    AreaKey (..),
+    NeighbouringAreas (..),
     areas,
     startingBoard,
     leaderDynasty,
@@ -57,108 +61,129 @@ module Tigris.Data
     markingText,
     nextToTemples,
     playerLeadersInHand,
-    leaderPositions
+    leaderPositions,
+    updateInfluence,
+    placeLeader,
+    region,
+    surrounds,
+    placeTile,
   )
 where
 
-import Control.Lens (makeLenses, ix, set, over)
-import Data.Aeson (FromJSON, ToJSON, ToJSONKey, FromJSONKey)
-import GHC.Generics (Generic)
-import Data.Map (Map)
-import qualified Data.Map as Map
-import Data.Set (Set)
-import qualified Data.Set as Set
-import Data.Monoid (Sum)
-import Data.Semigroup (Min)
-import Data.Array (Array, array)
-import Data.Text (Text)
 import Bag (Bag)
+import BasicPrelude hiding (empty, (<*), (\\))
+import Control.Lens hiding (uncons)
+import Control.Monad.State
+import Data.Aeson (FromJSON, FromJSONKey, ToJSON, ToJSONKey)
+import Data.Array (Array, array)
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.Map as Map
+import Data.Monoid (Ap (..))
+import Data.Semigroup (Min (..), Semigroup)
+import Data.Set ((\\))
+import qualified Data.Set as Set
+import GHC.Generics (Generic)
 
 data Sphere = Temples | Markets | Settlements | Farms deriving (Show, Eq, Ord, Generic)
 
-type Tile = Sphere 
+type Tile = Sphere
+
 instance ToJSON Sphere
+
 instance ToJSONKey Sphere
+
 instance FromJSON Sphere
+
 instance FromJSONKey Sphere
+
 data Dynasty = Archer | Bull | Pot | Lion deriving (Eq, Ord, Generic, Show)
+
 instance FromJSON Dynasty
+
 instance ToJSON Dynasty
 
-
-emptyBoard :: Board 
-emptyBoard = Board {_numberOfTreasuresLeft = 10,  _grid = emptyGrid, _leaderPositions = Map.empty, _influence = Map.empty}
-
+emptyBoard :: Board
+emptyBoard = Board {_numberOfTreasuresLeft = 10, _grid = emptyGrid, _leaderPositions = Map.empty, _influence = Map.empty}
 
 emptyGrid :: Grid
-emptyGrid = array ((1,1), (11,16)) $ do
-  (rowIndex, row) <- zip [1..] rows
-  (columnIndex, element) <- zip [1..] row
-  return ((rowIndex, columnIndex), empty element) 
+emptyGrid = array ((1, 1), (11, 16)) $ do
+  (rowIndex, row) <- zip [1 ..] rows
+  (columnIndex, marking) <- zip [1 ..] row
+  return ((rowIndex, columnIndex), empty marking)
   where
-    rows = 
-      [ replicate 4 Sand <> replicate 5 River <> replicate 3 Sand <> [ River] <> replicate 3 Sand
-      , replicate 4 Sand <> [River] <> replicate 7 Sand <> [River] <> replicate 3 Sand
-      , replicate 3 Sand <> [River, River] <> replicate 7 Sand <> [River, River, Sand, Sand]
-      , replicate 4 River <> replicate 9 Sand <> replicate 3 River
-      , replicate 14 Sand <> [River, River]
-      , replicate 14 Sand <> [River, Sand]
-      , replicate 4 River <> replicate 8 Sand <> replicate 3 River <> [Sand]
-      , replicate 3 Sand <> replicate 4 River <> replicate 5 Sand <> [River] <> replicate 3 Sand
-      , replicate 6 Sand <> replicate 7 River <> replicate 3 Sand
-      , replicate 16 Sand
-      , replicate 16 Sand
+    rows =
+      [ replicate 4 Sand <> replicate 5 River <> replicate 3 Sand <> [River] <> replicate 3 Sand,
+        replicate 4 Sand <> [River] <> replicate 7 Sand <> [River] <> replicate 3 Sand,
+        replicate 3 Sand <> [River, River] <> replicate 7 Sand <> [River, River, Sand, Sand],
+        replicate 4 River <> replicate 9 Sand <> replicate 3 River,
+        replicate 14 Sand <> [River, River],
+        replicate 14 Sand <> [River, Sand],
+        replicate 4 River <> replicate 8 Sand <> replicate 3 River <> [Sand],
+        replicate 3 Sand <> replicate 4 River <> replicate 5 Sand <> [River] <> replicate 3 Sand,
+        replicate 6 Sand <> replicate 7 River <> replicate 3 Sand,
+        replicate 16 Sand,
+        replicate 16 Sand
       ]
     empty marking = Space {_marking = marking, _slot = Nothing, _nextToTemples = False, _areas = Set.empty}
 
 data Leader = Leader {_leaderDynasty :: Dynasty, _leaderSphere :: Sphere} deriving (Show, Eq, Ord)
 
-data PlayingState = PlayingState GameStage Game deriving Show
-data GameStage = GameStage [Dynasty] Interaction deriving Show
+data PlayingState = PlayingState GameStage Game
 
-data Game = Game {_bag :: [Sphere], _players :: Map Dynasty PlayerInfo, _board :: Board} deriving (Show)
+data GameStage = GameStage [Dynasty] ActionNumber Interaction
 
-data ActionNumber = FirstAction | SecondAction  deriving (Show)
-data Interaction = Turn ActionNumber | RevoltAttack RevoltDetails | RevoltDefence RevoltDetails deriving Show
+data Game = Game {_bag :: [Sphere], _players :: Map Dynasty PlayerInfo, _board :: Board}
 
-data RevoltDetails = RevoltDetails { _revoltSphere :: Sphere, _revoltArea :: Set Leader, _revoltDefender :: Dynasty} deriving (Show)
+data ActionNumber = FirstAction | SecondAction
+
+data ConflictDetails = ConflictDetails deriving (Generic)
+
+data Interaction = Turn | RevoltAttack RevoltDetails | RevoltDefence RevoltDefenceDetails | War (NonEmpty ConflictDetails) | Conflict ConflictDetails
+
+data RevoltDefenceDetails = RevoltDefenceDetails {revoltDefender :: Dynasty, revoltAttackValue :: Dynasty, defenderPosition :: Position}
+
+data RevoltDetails = RevoltDetails {_revoltSphere :: Sphere, _revoltArea :: Set Leader, _revoltDefender :: Dynasty}
 
 type PlayerInfos = Map Dynasty PlayerInfo
 
-data Board = Board {_numberOfTreasuresLeft :: Int,  _grid :: Grid, _leaderPositions :: Map Leader Position, _influence :: Map AreaKey Influence} deriving Show
+data Board = Board {_numberOfTreasuresLeft :: Int, _grid :: Grid, _leaderPositions :: Map Leader Position, _influence :: Map AreaKey Influence}
 
-data Influence = Influence {_region :: Set Position, _surrounds :: Set Position} deriving Show
+data Influence = Influence {_region :: Set Position, _surrounds :: Set Position} deriving (Show)
+
+instance Semigroup Influence where
+  (Influence lr ls) <> (Influence rr rs) = Influence (lr <> rr) (ls <> rs)
 
 type Grid = Array Position Space
 
 type LeaderPositions = Map Leader Position
 
-data Region = Region { _area :: Set Space, _leaders :: Set Leader } deriving Show
+data Region = Region {_area :: Set Space, _leaders :: Set Leader}
 
-data PlayerInfo = PlayerInfo {_score :: Score, _hand :: Bag Sphere, _catastropheTiles :: Int, _playerLeadersInHand :: Set Sphere} deriving Show
+data PlayerInfo = PlayerInfo {_score :: Score, _hand :: Bag Sphere, _catastropheTiles :: Int, _playerLeadersInHand :: Set Sphere}
 
-data Space = Space {_marking :: Marking, _slot :: Maybe Piece, _nextToTemples :: Bool, _areas :: Set AreaKey} deriving Show
+data Space = Space {_marking :: Marking, _slot :: Maybe Piece, _nextToTemples :: Bool, _areas :: Set AreaKey}
 
 data AreaKey = RegionKey (Min Position) | KingdomKey (Set Leader) deriving (Show, Eq, Ord)
+
 instance Semigroup AreaKey where
   RegionKey x <> RegionKey y = RegionKey $ x <> y
   KingdomKey x <> KingdomKey y = KingdomKey $ x <> y
-  KingdomKey x <> RegionKey _ = KingdomKey x 
+  KingdomKey x <> RegionKey _ = KingdomKey x
   RegionKey _ <> KingdomKey y = KingdomKey y
 
-data EmptySpace = EmptySpace {_borderingRegions :: Set RegionKey} deriving Show
-data Piece = LeaderPiece Dynasty Sphere | TilePiece Sphere deriving Show
+newtype EmptySpace = EmptySpace {_borderingRegions :: Set RegionKey}
+
+data Piece = LeaderPiece Dynasty Sphere | TilePiece Sphere deriving (Eq)
 
 type RegionKey = Min Space
 
-data Marking = Sand | River deriving Show
-
+data Marking = Sand | River
 
 type Hand = Bag Sphere
 
-type Score = Map ScoreArea (Sum Int)
+type Score = Bag ScoreArea
 
-data ScoreArea = SphereScore Sphere | Treasure deriving (Show, Eq, Ord)
+data ScoreArea = SphereScore Sphere | Treasure deriving (Eq, Ord)
 
 type Winners = [Dynasty]
 
@@ -172,20 +197,29 @@ makeLenses ''Board
 makeLenses ''PlayerInfo
 makeLenses ''Space
 makeLenses ''Region
+makeLenses ''Influence
 
-data Interactions m = Interactions {getAction :: m Action, getCommittedTemples :: m Int}
+data Interactions m = Interactions {getAction :: m Action, getCommittedTemples :: Int -> m Int, chooseConflict :: NonEmpty ConflictDetails -> m ConflictDetails}
 
 startingBoard :: Board
-startingBoard = putTemples emptyBoard where
-  putTemples = applyAll putTemple temples where
-    temples = [(1,11), (2,2), (2,16), (3,6), (5,14), (7,9), (8,2), (9,15), (10,6), (11,11)]
+startingBoard = execState (traverse_ putTemple temples) emptyBoard
+  where
+    temples = [(1, 11), (2, 2), (2, 16), (3, 6), (5, 14), (7, 9), (8, 2), (9, 15), (10, 6), (11, 11)]
 
-putTemple :: Position -> Board -> Board
-putTemple position = over grid $ applyAll setTempleAdjacent (adjacentPositions position) . set (ix position . slot) (Just (TilePiece Temples)) where
-  setTempleAdjacent adjacency = set (ix adjacency . nextToTemples) True
+putTemple :: Position -> State Board ()
+putTemple position = placeTile Temples position *> addInfluence key' position *> traverse_ setTempleAdjacent (adjacentPositions position)
+  where
+    key' = RegionKey $ Min position
+
+setTempleAdjacent :: Position -> State Board ()
+setTempleAdjacent adjacency = (grid . ix adjacency . nextToTemples) .= True
+
+-- putTemple position = over grid $ applyAll setTempleAdjacent (adjacentPositions position) . set (ix position . slot) (Just (TilePiece Temples))
+--  where
+--    setTempleAdjacent adjacency = set (ix adjacency . nextToTemples) True
 
 adjacentPositions :: Position -> [Position]
-adjacentPositions (i, j) = ((i,) <$> adjacentColumns j) <> ((,j) <$> adjacentRows i) 
+adjacentPositions (i, j) = ((i,) <$> adjacentColumns j) <> ((,j) <$> adjacentRows i)
 
 adjacentColumns :: Int -> [Int]
 adjacentColumns 1 = [2]
@@ -196,10 +230,6 @@ adjacentRows :: Int -> [Int]
 adjacentRows 1 = [2]
 adjacentRows 11 = [10]
 adjacentRows i = [i - 1, i + 1]
-
-
-applyAll :: (a -> b -> b) -> [a] -> b -> b
-applyAll  = flip . foldr
 
 sphereText :: Sphere -> Text
 sphereText Temples = "temples"
@@ -217,10 +247,66 @@ markingText :: Marking -> Text
 markingText Sand = "sand"
 markingText River = "river"
 
-data CommittedTemples = CommittedTemples { value :: Int} deriving Generic
+updateInfluence :: AreaKey -> Set AreaKey -> Position -> State Game ()
+updateInfluence key toKeys position = do
+  positions <- removeInfluence removedKeys
+  traverse_ (zoom board . addInfluence resultingKey) (Set.insert position positions)
+  where
+    resultingKey = foldr (<>) key toKeys
+    removedKeys = Set.filter (/= resultingKey) toKeys
+
+addInfluence :: AreaKey -> Position -> State Board ()
+addInfluence areaKey position = ((influence . at areaKey) %= (<> influence')) *> traverse_ addToGrid adjacentPositions'
+  where
+    influence' = Just $ Influence {_region = Set.singleton position, _surrounds = adjacentPositions'}
+    addToGrid :: Position -> State Board ()
+    addToGrid position' = grid . ix position' . areas %= Set.insert areaKey
+    adjacentPositions' :: Set Position
+    adjacentPositions' = Set.insert position $ Set.fromList $ adjacentPositions position
+
+removeInfluence :: Set AreaKey -> State Game (Set Position)
+removeInfluence fromKeys = do
+  (region', surrounds') <- getAp (foldMap (Ap . transferMap) fromKeys)
+  traverse_ transferPosition surrounds'
+  return region'
+  where
+    transferPosition :: Position -> State Game ()
+    transferPosition position = (board . grid . ix position . areas) %= (\\ fromKeys)
+    transferMap :: AreaKey -> State Game (Set Position, Set Position)
+    transferMap areaKey = (board . influence . at areaKey) %%= ((,Nothing) . foldMap (view region &&& view surrounds))
+
+placeLeader :: Dynasty -> Sphere -> Maybe Position -> State Game NeighbouringAreas
+placeLeader dynasty sphere maybePosition = do
+  oldPosition <- swapOutLeaderPosition
+  maybe removeFromHand removeFromBoard oldPosition
+  getNeighbouringAreas <- maybe (Set.empty <$ addToHand) addToBoard maybePosition
+  return (NeighbouringAreas {getNeighbouringAreas})
+  where
+    addToHand = playerLeadersInHand' %= Set.insert sphere
+    addToBoard :: Position -> State Game (Set AreaKey)
+    addToBoard position = atPosition position %%= (view areas &&& set slot (Just leader))
+    leader = LeaderPiece dynasty sphere
+    removeFromHand = playerLeadersInHand' %= Set.delete sphere
+    removeFromBoard :: Position -> State Game ()
+    removeFromBoard position = slot' position .= Nothing
+    swapOutLeaderPosition = board . leaderPositions . at (Leader dynasty sphere) %%= (,maybePosition)
+    playerLeadersInHand' = players . at dynasty . traverse . playerLeadersInHand
+    slot' position = atPosition position . slot
+    atPosition position = board . grid . ix position
+
+newtype NeighbouringAreas = NeighbouringAreas {getNeighbouringAreas :: Set AreaKey}
+
+placeTile :: Sphere -> Position -> State Board NeighbouringAreas
+placeTile sphere position = fmap NeighbouringAreas $ (grid . ix position) %%= (view areas &&& (set slot . Just $ TilePiece sphere))
+
+newtype CommittedTemples = CommittedTemples {value :: Int} deriving (Generic)
+
 instance ToJSON CommittedTemples
+
 instance FromJSON CommittedTemples
+
 instance ToJSON Action
+
 instance FromJSON Action
 
-
+instance FromJSON ConflictDetails
