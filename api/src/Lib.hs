@@ -6,29 +6,28 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module Lib (ChooseRoleHtml, NoughtOrCross, PlayerId(..), keepAlive, sendHtml, encodeToText, recursing, GameId, Actions(..), Player(..), returning, Table(..), GameTVars(..), GameKey(..), actions, newGame, table, nextMessageFromAnyPlayer, nextValidMessageFromAnyPlayer, notify, WebSocketContainer(..), gameDiv, xData, onFirst, onSecond) where
+module Lib (ChooseRoleHtml, NoughtOrCross, PlayerId (..), keepAlive, sendHtml, encodeToText, recursing, GameId, Actions (..), Player (..), returning, Table (..), GameTVars (..), GameKey (..), actions, newGame, table, nextMessageFromAnyPlayer, nextValidMessageFromAnyPlayer, notify, WebSocketContainer (..), gameDiv, xData, onFirst, onSecond, tupled) where
 
 import BasicPrelude
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Async (cancel, withAsync)
 import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar, modifyTVar', newTQueueIO, newTVar, orElse, readTQueue, readTVar, readTVarIO, retry, writeTQueue, writeTVar)
+import Control.Monad.State (StateT (..), runStateT)
 import Data.Aeson (FromJSON, ToJSON, eitherDecodeStrict)
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Functor.Compose
 import qualified Data.Map as Map
-import Control.Monad.State (StateT(..), runStateT)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import GHC.Conc (threadDelay)
 import GHC.Generics (Generic)
+import Lucid (Attributes, term)
 import Lucid.Base (Html, renderText)
+import Lucid.Html5
 import Network.WebSockets.Connection (Connection, receiveData, sendTextData, withPingThread)
 import Servant
 import Servant.API.WebSocket (WebSocket)
 import Text.StringRandom (stringRandomIO)
-import Lucid.Html5
-import Lucid (term, Attributes)
-
 
 generateGameId :: IO GameId
 generateGameId = GameId <$> generateId
@@ -64,7 +63,6 @@ instance FromHttpApiData GameId where
 instance ToHttpApiData GameId where
   toUrlPiece (GameId id') = id'
 
-
 type ChooseRoleHtml a = Map a (PlayerId, Name) -> PlayerId -> (Html ())
 
 instance FromJSON NoughtOrCross
@@ -85,7 +83,6 @@ instance ToHttpApiData GameKey where
   toUrlPiece Noughts = "noughts"
   toUrlPiece Chess = "chess"
 
-
 data Actions = Actions {createGame :: Player -> IO GameId, newPlayerId :: IO PlayerId, getGame :: GameId -> IO (Maybe Table)}
 
 data Table = Table {addPlayer :: Player -> IO (), connectGame :: Player -> Connection -> IO (), tablePlayer :: PlayerId -> IO (Maybe Player)}
@@ -105,7 +102,7 @@ newtype WebSocketContainer = WebSocketContainer {getWebsocket :: WebSocket}
 data GameTVars state = GameTVars
   { latestState :: TVar state,
     playerOutputs :: TVar [state -> STM ()],
-    playerInputs :: TVar (Map Player (STM ByteString)) ,
+    playerInputs :: TVar (Map Player (STM ByteString)),
     playerNames :: TVar (Map PlayerId Player),
     waitForFinish :: IO ()
   }
@@ -114,7 +111,6 @@ notify :: GameTVars state -> state -> STM ()
 notify game state = do
   readTVar (playerOutputs game) >>= traverse_ ($ state)
   writeTVar (latestState game) $ state
-
 
 actions :: (Player -> STM game) -> (game -> IO ()) -> (game -> Table) -> TVar (Map GameId game) -> Actions
 actions newGame' hostGame table' gameMap = Actions {createGame, newPlayerId, getGame}
@@ -158,7 +154,7 @@ readLoop :: Connection -> (ByteString -> STM ()) -> IO ()
 readLoop conn enqueue = forever $ do
   msg <- receiveData conn
   putStrLn $ tshow msg
-  atomically$ enqueue msg
+  atomically $ enqueue msg
 
 sendLoop :: STM (Html ()) -> Connection -> IO ()
 sendLoop dequeue conn = forever $ sendHtml conn =<< atomically dequeue
@@ -168,27 +164,32 @@ nextMessageFromAnyPlayer playerInputs = readTVar playerInputs >>= nextPlayerMess
   where
     nextPlayerMessage = foldr orElse retry . map sequence . Map.toList
 
-nextValidMessageFromAnyPlayer :: FromJSON input => TVar (Map Player (STM ByteString)) -> IO (Player, input)
-nextValidMessageFromAnyPlayer playerInputs = nextValidMessageFromAnyPlayer' where
-  nextValidMessageFromAnyPlayer' = either logAndRetry return . traverse eitherDecodeStrict =<< atomically (nextMessageFromAnyPlayer playerInputs)
-  logAndRetry e = putStrLn (T.pack e) *> nextValidMessageFromAnyPlayer'
-
+nextValidMessageFromAnyPlayer :: (FromJSON input) => TVar (Map Player (STM ByteString)) -> IO (Player, input)
+nextValidMessageFromAnyPlayer playerInputs = nextValidMessageFromAnyPlayer'
+  where
+    nextValidMessageFromAnyPlayer' = either logAndRetry return . traverse eitherDecodeStrict =<< atomically (nextMessageFromAnyPlayer playerInputs)
+    logAndRetry e = putStrLn (T.pack e) *> nextValidMessageFromAnyPlayer'
 
 gameDiv :: Html () -> Html ()
-gameDiv = div_ [id_ "game"] 
+gameDiv = div_ [id_ "game"]
 
 xData :: Text -> Attributes
-xData = term "x-data" 
+xData = term "x-data"
 
 onSecond :: ((a -> Compose f g b) -> s -> Compose f g t) -> ((c, a) -> f (g b)) -> (c, s) -> f (g t)
-onSecond l f (c, s) = getCompose $ l g s where
-  g a = Compose $ f (c, a)
+onSecond l f (c, s) = getCompose $ l g s
+  where
+    g a = Compose $ f (c, a)
 
 onFirst :: ((a -> StateT c f b) -> s -> StateT c f t) -> ((a, c) -> f (b, c)) -> (s, c) -> f (t, c)
-onFirst l f (s, c) = runStateT (l g s) c where
-  g a = StateT (curry f a)
+onFirst l f (s, c) = runStateT (l g s) c
+  where
+    g a = StateT (curry f a)
 
---traversek :: Monad f => (a -> f (Bool, a)) -> [a] -> f (Bool, [a])
---traversek f [] = return (False, [])
---traversek f (a:as) = uncurry (bool continue (return . (True,). (:as)) ) =<< f a where
+tupled :: (Applicative f) => (f a1, f a2) -> f (a1, a2)
+tupled (fa, fb) = (,) <$> fa <*> fb
+
+-- traversek :: Monad f => (a -> f (Bool, a)) -> [a] -> f (Bool, [a])
+-- traversek f [] = return (False, [])
+-- traversek f (a:as) = uncurry (bool continue (return . (True,). (:as)) ) =<< f a where
 --  continue  = ($ traversek f as) . fmap . second . (:)

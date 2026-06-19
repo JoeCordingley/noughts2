@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE NoImplicitPrelude #-}
@@ -18,7 +19,9 @@ import Control.Monad.Trans.Maybe
 import Data.Bimap (Bimap)
 import qualified Data.Bimap as Bimap
 import Data.Foldable (fold)
+import Data.Map ((!))
 import qualified Data.Map as Map
+import Data.Maybe (fromJust)
 import Data.Monoid (Ap (..))
 import Data.Semigroup
 import qualified Data.Set as Set
@@ -73,52 +76,6 @@ playGame interactions recurse (PlayingState gameStage game) = uncurry (either pu
     pure' winners' game' = pure (winners', game')
     recurse' gamestage' game' = recurse (PlayingState gamestage' game')
 
--- applyAction :: [Dynasty] -> ActionNumber -> Action -> State Game (Maybe GameStage)
--- applyAction (currentPlayer : subsequentPlayers) actionNumber action = runMaybeT $ case action of
---  Pass -> endTurn
---  (ReplaceTiles discards) -> replaceTiles *> continue
---    where
---      replaceTiles = zoomMaybeState (playersAndBag . onFirst (at currentPlayer . traverse . hand)) (lift removeDiscards *> dealHand)
---      removeDiscards = _1 %= (<> discards)
---  PlayCatastrophe -> undefined
---  (PlaceTile sphere position) -> do
---    NeighbouringAreas areas' <- lift (zoom board (placeTile sphere position))
---    maybe (updateInfluence' areas' *> continue) (pure . withSamePlayer . War) $ warDetails areas'
---    where
---      warDetails _ = Nothing
---      updateInfluence' areas' = lift $ updateInfluence (RegionKey (Min position)) areas' position
---  (PositionLeader sphere position) -> maybe continue (pure . withSamePlayer . RevoltAttack) =<< lift positionLeader
---    where
---      positionLeader = runMaybeT . foldMapA (MaybeT . revoltOrAddInfluence) . getNeighbouringAreas =<< placeLeader currentPlayer sphere position
---      keyAddition = KingdomKey (Set.singleton leader)
---      revoltOrAddInfluence :: AreaKey -> State Game (Maybe RevoltDetails)
---      revoltOrAddInfluence existingKey = maybe (Nothing <$ updateInfluence') (pure . Just) $ revoltDetails existingKey
---        where
---          updateInfluence' = traverse_ addLeaderToRegion position
---          addLeaderToRegion = updateInfluence keyAddition $ Set.singleton existingKey
---      leader = Leader currentPlayer sphere
---      revoltDetails (KingdomKey leaders') = foldMapA fromLeader leaders'
---        where
---          fromLeader (Leader opponent sphere') = if sphere == sphere' then Just $ RevoltDetails sphere leaders' opponent else Nothing
---      revoltDetails _ = Nothing
---  where
---    withSamePlayer = GameStage (currentPlayer : subsequentPlayers)
---    endTurn = do
---      treasuresLeft <- lift $ use (board . numberOfTreasuresLeft)
---      guard $ treasuresLeft > 2
---      refreshHands
---      return nextPlayer
---    nextPlayer = GameStage subsequentPlayers $ Turn FirstAction
---    refreshHands = zoomMaybeState (playersAndBag . onFirst (traverse . hand)) dealHand
---    dealHand = do
---      handSize <- lift $ uses _1 (getSum . Bag.size)
---      replicateM_ (6 - handSize) dealOne'
---    dealOne' = MaybeT . state . orPassThrough $ uncurry dealOne
---    continue = case actionNumber of
---      FirstAction -> pure . withSamePlayer $ Turn SecondAction
---      SecondAction -> endTurn
--- applyAction _ _ _ = undefined
-
 zoomMaybeState :: ((s -> (Maybe a, s)) -> t -> (Maybe a, t)) -> MaybeT (State s) a -> MaybeT (State t) a
 zoomMaybeState l = MaybeT . state . l . runState . runMaybeT
 
@@ -130,36 +87,42 @@ liftStateT = mapStateT (pure . runIdentity)
 orFinish :: (Monad m) => Maybe a -> StateT Game m (Either Winners a)
 orFinish = maybe (Left <$> determineWinners) (pure . Right)
 
-revoltDefence :: (Monad m) => Position -> StateT Game m (Sum Int) -> StateT Game m (Sum Int)
-revoltDefence position getCommittedTemples' = (+) <$> zoom (board . grid) getAdjacentTemples <*> getCommittedTemples'
-  where
-    getAdjacentTemples = getAp . foldMap (Ap . countTemple) $ adjacentPositions position
-    countTemple position' = uses (ix position' . slot . traverse) $ count (== TilePiece Temples)
-
-removeCommittedTemples :: Int -> StateT Game m ()
-removeCommittedTemples = undefined
-
-count :: (a -> Bool) -> a -> Sum Int
-count p = bool 0 1 . p
+increment :: (a -> Bool) -> a -> Sum Int
+increment p = bool 0 1 . p
 
 playInteraction :: (Monad m) => (Dynasty -> Interactions m) -> GameStage -> Game -> m (Either Winners GameStage, Game)
 playInteraction interactions' (GameStage (currentPlayer : subsequentPlayers) turnNumber interaction) game = case interaction of
-  RevoltDefence (RevoltDefenceDetails {revoltDefender, revoltAttackValue, defenderPosition}) -> runStateT (liftStateT . resolveRevolt =<< revoltDefence defenderPosition (zoom (players . at revoltDefender . traverse . hand . at Temples . traverse) (StateT . revoltAttack $ interactions' revoltDefender))) game
+  RevoltDefence (RevoltDetails {revoltDefender, revoltArea, revoltDefenderPosition, revoltAttackerPosition}) revoltAttackValue -> runStateT (liftStateT . resolveRevolt =<< revoltDefence revoltDefenderPosition) game
     where
-      resolveRevolt = orFinish <=< runMaybeT . const continue' <=< bool (removeAttacker *> scoreDefender) (removeDefender *> scoreAttacker) . attackerWins
-      removeAttacker = undefined
-      removeDefender = undefined
-      scoreAttacker = undefined
-      scoreDefender = undefined
-      attackerWins = undefined
-  RevoltAttack _ -> runStateT (undefined <$> zoom (players . at currentPlayer . traverse . hand . at Temples . traverse) (StateT $ revoltAttack playerInteractions)) game
-  Conflict details -> undefined
-  War conflicts -> (,game) . Right . GameStage (currentPlayer : subsequentPlayers) turnNumber . Conflict <$> chooseConflict playerInteractions conflicts
+      revoltDefence position = (+) <$> zoom (board . grid) getAdjacentTemples <*> getCommittedTemples' revoltDefender
+        where
+          getAdjacentTemples = getAp . foldMap (Ap . countTemple) $ adjacentPositions position
+          countTemple position' = uses (ix position' . slot . traverse) $ increment (== TilePiece Temples)
+      resolveRevolt defenceValue = do
+        bool
+          (removeAttacker *> scoreOneTemple revoltDefender)
+          (removeDefender *> scoreOneTemple revoltAttacker)
+          attackerWins
+        maybeGame <- runMaybeT continue'
+        orFinish maybeGame
+        where
+          attackerWins = revoltAttackValue > defenceValue
+      removeAttacker = removeFromBoard revoltAttackerPosition
+      removeDefender = do
+        removeFromBoard revoltDefenderPosition
+        removeFromArea (KingdomKey revoltArea) revoltDefenderPosition
+        joinInfluenceAt revoltAttackerPosition
+      scoreOneTemple player = (players . at player . traverse . score) <>= Bag.one (SphereScore Temples)
+      removeFromBoard position = (board . grid . ix position . slot) .= Nothing
+  RevoltAttack details -> runStateT (Right . sameTurn . RevoltDefence details . undefined <$> getCommittedTemples' revoltAttacker) game
+  Conflict _ -> undefined
+  War conflicts -> (,game) . Right . sameTurn . Conflict <$> chooseConflict playerInteractions conflicts
   Turn -> flip runState game . (orFinish <=< applyAction) <$> getAction playerInteractions
   where
-    revoltAttack player (Sum playerTemples) = do
-      committed <- getCommittedTemples player playerTemples
-      return (Sum committed, Sum (playerTemples - committed))
+    revoltAttacker = currentPlayer
+    getCommittedTemples' player = zoom (players . at player . traverse . hand . at Temples . traverse) (StateT f)
+      where
+        f (Sum playerTemples) = (Sum &&& Sum . (playerTemples -)) <$> getCommittedTemples (interactions' player) playerTemples
     continue' = continue turnNumber
     sameTurn = withSamePlayer turnNumber
     withSamePlayer = GameStage (currentPlayer : subsequentPlayers)
@@ -173,8 +136,8 @@ playInteraction interactions' (GameStage (currentPlayer : subsequentPlayers) tur
       return nextPlayer
     dealHand = do
       handSize <- lift $ uses _1 (getSum . Bag.size)
-      replicateM_ (6 - handSize) dealOne'
-    dealOne' = MaybeT . state . orPassThrough $ uncurry dealOne
+      replicateM_ (6 - handSize) (MaybeT dealOne')
+    dealOne' = state . orPassThrough $ uncurry dealOne
     nextPlayer = GameStage subsequentPlayers FirstAction Turn
     refreshHands = zoomMaybeState (playersAndBag . onFirst (traverse . hand)) dealHand
     applyAction action = runMaybeT $ case action of
@@ -189,23 +152,28 @@ playInteraction interactions' (GameStage (currentPlayer : subsequentPlayers) tur
         maybe (updateInfluence' areas' *> continue') (pure . sameTurn . War) $ warDetails areas'
         where
           warDetails _ = Nothing
-          updateInfluence' areas' = lift $ updateInfluence (RegionKey (Min position)) areas' position
+          updateInfluence' areas' = lift $ joinInfluence (RegionKey (Min position)) areas' position
       (PositionLeader sphere position) -> maybe continue' (pure . sameTurn . RevoltAttack) =<< lift positionLeader
         where
           positionLeader = runMaybeT . foldMapA (MaybeT . revoltOrAddInfluence) . getNeighbouringAreas =<< placeLeader currentPlayer sphere position
-          keyAddition = KingdomKey (Set.singleton leader)
-          revoltOrAddInfluence :: AreaKey -> State Game (Maybe RevoltDetails)
-          revoltOrAddInfluence existingKey = maybe (Nothing <$ updateInfluence') (pure . Just) $ revoltDetails existingKey
+          leaderKey = KingdomKey (Set.singleton leader)
+          revoltOrAddInfluence existingKey = maybe (Nothing <$ traverse_ addLeaderToRegion position) (pure . Just) =<< maybeRevoltDetails existingKey
             where
-              updateInfluence' = traverse_ addLeaderToRegion position
-              addLeaderToRegion = updateInfluence keyAddition $ Set.singleton existingKey
+              addLeaderToRegion = joinInfluence leaderKey $ Set.singleton existingKey
           leader = Leader currentPlayer sphere
-          revoltDetails (KingdomKey leaders') = foldMapA fromLeader leaders'
+          maybeRevoltDetails :: AreaKey -> State Game (Maybe RevoltDetails)
+          maybeRevoltDetails (KingdomKey kingdomLeaders) = runMaybeT $ foldMapA fromLeader kingdomLeaders
             where
-              fromLeader (Leader opponent sphere') = if sphere == sphere' then Just $ RevoltDetails sphere leaders' opponent else Nothing
-          revoltDetails _ = Nothing
-      where
-
+              fromLeader otherLeader = case otherLeader of
+                Leader otherPlayer otherSphere | otherSphere == sphere -> MaybeT . fmap (Just . revoltDetails) $ leaderPosition otherLeader
+                  where
+                    revoltDefender = otherPlayer
+                    revoltArea = kingdomLeaders
+                    leaderPosition leader' = uses (board . leaderPositions) (! leader') where
+                    revoltAttackerPosition = fromJust position
+                    revoltDetails revoltDefenderPosition = RevoltDetails {revoltArea, revoltDefender, revoltAttackerPosition, revoltDefenderPosition}
+                _ -> empty
+          maybeRevoltDetails _ = pure Nothing
 playInteraction _ _ _ = undefined
 
 foldMapA :: (Foldable t, Alternative m) => (a -> m b) -> t a -> m b

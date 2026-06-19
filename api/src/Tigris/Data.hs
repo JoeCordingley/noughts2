@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -44,7 +45,6 @@ module Tigris.Data
     PlayingState (..),
     GameStage (..),
     RevoltDetails (..),
-    RevoltDefenceDetails (..),
     Region,
     Interactions (..),
     EmptySpace (..),
@@ -62,11 +62,13 @@ module Tigris.Data
     nextToTemples,
     playerLeadersInHand,
     leaderPositions,
-    updateInfluence,
+    joinInfluence,
     placeLeader,
     region,
     surrounds,
     placeTile,
+    removeFromArea,
+    joinInfluenceAt,
   )
 where
 
@@ -78,11 +80,12 @@ import Data.Aeson (FromJSON, FromJSONKey, ToJSON, ToJSONKey)
 import Data.Array (Array, array)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.Map as Map
-import Data.Monoid (Ap (..))
+import Data.Monoid (Ap (..), Sum (..))
 import Data.Semigroup (Min (..), Semigroup)
 import Data.Set ((\\))
 import qualified Data.Set as Set
 import GHC.Generics (Generic)
+import Lib (tupled)
 
 data Sphere = Temples | Markets | Settlements | Farms deriving (Show, Eq, Ord, Generic)
 
@@ -138,11 +141,11 @@ data ActionNumber = FirstAction | SecondAction
 
 data ConflictDetails = ConflictDetails deriving (Generic)
 
-data Interaction = Turn | RevoltAttack RevoltDetails | RevoltDefence RevoltDefenceDetails | War (NonEmpty ConflictDetails) | Conflict ConflictDetails
+data Interaction = Turn | RevoltAttack RevoltDetails | RevoltDefence RevoltDetails RevoltAttackValue | War (NonEmpty ConflictDetails) | Conflict ConflictDetails
 
-data RevoltDefenceDetails = RevoltDefenceDetails {revoltDefender :: Dynasty, revoltAttackValue :: Dynasty, defenderPosition :: Position}
+type RevoltAttackValue = Sum Int
 
-data RevoltDetails = RevoltDetails {_revoltSphere :: Sphere, _revoltArea :: Set Leader, _revoltDefender :: Dynasty}
+data RevoltDetails = RevoltDetails {revoltArea :: Set Leader, revoltDefender :: Dynasty, revoltAttackerPosition :: Position, revoltDefenderPosition :: Position}
 
 type PlayerInfos = Map Dynasty PlayerInfo
 
@@ -247,16 +250,28 @@ markingText :: Marking -> Text
 markingText Sand = "sand"
 markingText River = "river"
 
-updateInfluence :: AreaKey -> Set AreaKey -> Position -> State Game ()
-updateInfluence key toKeys position = do
+joinInfluence :: AreaKey -> Set AreaKey -> Position -> State Game ()
+joinInfluence key toKeys position = do
   positions <- removeInfluence removedKeys
   traverse_ (zoom board . addInfluence resultingKey) (Set.insert position positions)
   where
     resultingKey = foldr (<>) key toKeys
     removedKeys = Set.filter (/= resultingKey) toKeys
 
+removeFromArea :: AreaKey -> Position -> State Game ()
+removeFromArea area' removedPosition = do
+  positions <- removeInfluence $ Set.singleton area'
+  traverse_ joinInfluenceAt (Set.delete removedPosition positions)
+
+joinInfluenceAt :: Position -> StateT Game Identity ()
+joinInfluenceAt position = traverse_ joinInfluence' =<< uses (board . grid . ix position) (tupled . (fmap areaKey . view slot &&& Just . view areas))
+  where
+    joinInfluence' (key, toKeys) = joinInfluence key toKeys position
+    areaKey (LeaderPiece dynasty sphere) = KingdomKey . Set.singleton $ Leader dynasty sphere
+    areaKey (TilePiece _) = RegionKey $ Min position
+
 addInfluence :: AreaKey -> Position -> State Board ()
-addInfluence areaKey position = ((influence . at areaKey) %= (<> influence')) *> traverse_ addToGrid adjacentPositions'
+addInfluence areaKey position = ((influence . at areaKey) <>= influence') *> traverse_ addToGrid adjacentPositions'
   where
     influence' = Just $ Influence {_region = Set.singleton position, _surrounds = adjacentPositions'}
     addToGrid :: Position -> State Board ()
@@ -266,14 +281,14 @@ addInfluence areaKey position = ((influence . at areaKey) %= (<> influence')) *>
 
 removeInfluence :: Set AreaKey -> State Game (Set Position)
 removeInfluence fromKeys = do
-  (region', surrounds') <- getAp (foldMap (Ap . transferMap) fromKeys)
-  traverse_ transferPosition surrounds'
+  (region', surrounds') <- getAp (foldMap (Ap . removeInfluenceFromMap) fromKeys)
+  traverse_ removeInfluenceFromBoardAt surrounds'
   return region'
   where
-    transferPosition :: Position -> State Game ()
-    transferPosition position = (board . grid . ix position . areas) %= (\\ fromKeys)
-    transferMap :: AreaKey -> State Game (Set Position, Set Position)
-    transferMap areaKey = (board . influence . at areaKey) %%= ((,Nothing) . foldMap (view region &&& view surrounds))
+    removeInfluenceFromBoardAt :: Position -> State Game ()
+    removeInfluenceFromBoardAt position = board . grid . ix position . areas %= (\\ fromKeys)
+    removeInfluenceFromMap :: AreaKey -> State Game (Set Position, Set Position)
+    removeInfluenceFromMap areaKey = board . influence . at areaKey %%= ((,Nothing) . foldMap (view region &&& view surrounds))
 
 placeLeader :: Dynasty -> Sphere -> Maybe Position -> State Game NeighbouringAreas
 placeLeader dynasty sphere maybePosition = do
