@@ -63,7 +63,8 @@ module Tigris.Data
     playerLeadersInHand,
     leaderPositions,
     joinInfluence,
-    placeLeader,
+    placeLeaderOffBoard,
+    placeLeaderOnBoard,
     region,
     surrounds,
     placeTile,
@@ -290,24 +291,25 @@ removeInfluence fromKeys = do
     removeInfluenceFromMap :: AreaKey -> State Game (Set Position, Set Position)
     removeInfluenceFromMap areaKey = board . influence . at areaKey %%= ((,Nothing) . foldMap (view region &&& view surrounds))
 
-placeLeader :: Dynasty -> Sphere -> Maybe Position -> State Game NeighbouringAreas
-placeLeader dynasty sphere maybePosition = do
-  oldPosition <- swapOutLeaderPosition
-  maybe removeFromHand removeFromBoard oldPosition
-  getNeighbouringAreas <- maybe (Set.empty <$ addToHand) addToBoard maybePosition
-  return (NeighbouringAreas {getNeighbouringAreas})
+placeLeaderOnBoard :: Dynasty -> Sphere -> Position -> State Game NeighbouringAreas
+placeLeaderOnBoard dynasty sphere position = swapOutLeaderPosition dynasty sphere (Just position) *> addToBoard
+  where
+    addToBoard = fmap NeighbouringAreas (board . grid . ix position %%= (view areas &&& set slot (Just leader)))
+    leader = LeaderPiece dynasty sphere
+
+swapOutLeaderPosition :: Dynasty -> Sphere -> Maybe Position -> State Game ()
+swapOutLeaderPosition dynasty sphere maybePosition = maybe removeFromHand removeFromBoard =<< board . leaderPositions . at (Leader dynasty sphere) %%= (,maybePosition)
+  where
+    removeFromHand = playerLeadersInHand' %= Set.delete sphere
+    removeFromBoard position = slot' position .= Nothing
+    playerLeadersInHand' = players . at dynasty . traverse . playerLeadersInHand
+    slot' position = board . grid . ix position . slot
+
+placeLeaderOffBoard :: Dynasty -> Sphere -> State Game ()
+placeLeaderOffBoard dynasty sphere = swapOutLeaderPosition dynasty sphere Nothing *> addToHand
   where
     addToHand = playerLeadersInHand' %= Set.insert sphere
-    addToBoard :: Position -> State Game (Set AreaKey)
-    addToBoard position = atPosition position %%= (view areas &&& set slot (Just leader))
-    leader = LeaderPiece dynasty sphere
-    removeFromHand = playerLeadersInHand' %= Set.delete sphere
-    removeFromBoard :: Position -> State Game ()
-    removeFromBoard position = slot' position .= Nothing
-    swapOutLeaderPosition = board . leaderPositions . at (Leader dynasty sphere) %%= (,maybePosition)
     playerLeadersInHand' = players . at dynasty . traverse . playerLeadersInHand
-    slot' position = atPosition position . slot
-    atPosition position = board . grid . ix position
 
 newtype NeighbouringAreas = NeighbouringAreas {getNeighbouringAreas :: Set AreaKey}
 

@@ -21,7 +21,6 @@ import qualified Data.Bimap as Bimap
 import Data.Foldable (fold)
 import Data.Map ((!))
 import qualified Data.Map as Map
-import Data.Maybe (fromJust)
 import Data.Monoid (Ap (..))
 import Data.Semigroup
 import qualified Data.Set as Set
@@ -153,27 +152,28 @@ playInteraction interactions' (GameStage (currentPlayer : subsequentPlayers) tur
         where
           warDetails _ = Nothing
           updateInfluence' areas' = lift $ joinInfluence (RegionKey (Min position)) areas' position
-      (PositionLeader sphere position) -> maybe continue' (pure . sameTurn . RevoltAttack) =<< lift positionLeader
-        where
-          positionLeader = runMaybeT . foldMapA (MaybeT . revoltOrAddInfluence) . getNeighbouringAreas =<< placeLeader currentPlayer sphere position
-          leaderKey = KingdomKey (Set.singleton leader)
-          revoltOrAddInfluence existingKey = maybe (Nothing <$ traverse_ addLeaderToRegion position) (pure . Just) =<< maybeRevoltDetails existingKey
-            where
-              addLeaderToRegion = joinInfluence leaderKey $ Set.singleton existingKey
-          leader = Leader currentPlayer sphere
-          maybeRevoltDetails :: AreaKey -> State Game (Maybe RevoltDetails)
-          maybeRevoltDetails (KingdomKey kingdomLeaders) = runMaybeT $ foldMapA fromLeader kingdomLeaders
-            where
-              fromLeader otherLeader = case otherLeader of
-                Leader otherPlayer otherSphere | otherSphere == sphere -> MaybeT . fmap (Just . revoltDetails) $ leaderPosition otherLeader
-                  where
-                    revoltDefender = otherPlayer
-                    revoltArea = kingdomLeaders
-                    leaderPosition leader' = uses (board . leaderPositions) (! leader') where
-                    revoltAttackerPosition = fromJust position
-                    revoltDetails revoltDefenderPosition = RevoltDetails {revoltArea, revoltDefender, revoltAttackerPosition, revoltDefenderPosition}
-                _ -> empty
-          maybeRevoltDetails _ = pure Nothing
+      (PositionLeader sphere maybePosition) -> case maybePosition of
+        Just position -> maybe continue' (pure . sameTurn . RevoltAttack) =<< lift positionLeader
+          where
+            leader = Leader currentPlayer sphere
+            positionLeader = runMaybeT . foldMapA (MaybeT . revoltOrAddInfluence) . getNeighbouringAreas =<< placeLeaderOnBoard currentPlayer sphere position
+            revoltOrAddInfluence existingKey = maybe (Nothing <$ addLeaderToRegion position) (pure . Just) =<< maybeRevoltDetails existingKey
+              where
+                addLeaderToRegion = joinInfluence leaderKey $ Set.singleton existingKey
+            leaderKey = KingdomKey (Set.singleton leader)
+            maybeRevoltDetails (KingdomKey kingdomLeaders) = runMaybeT $ foldMapA fromLeader kingdomLeaders
+              where
+                fromLeader otherLeader = case otherLeader of
+                  Leader otherPlayer otherSphere | otherSphere == sphere -> MaybeT . fmap (Just . revoltDetails) $ leaderPosition otherLeader
+                    where
+                      revoltDefender = otherPlayer
+                      revoltArea = kingdomLeaders
+                      leaderPosition leader' = uses (board . leaderPositions) (! leader') where
+                      revoltAttackerPosition = position
+                      revoltDetails revoltDefenderPosition = RevoltDetails {revoltArea, revoltDefender, revoltAttackerPosition, revoltDefenderPosition}
+                  _ -> empty
+            maybeRevoltDetails _ = pure Nothing
+        Nothing -> lift (placeLeaderOffBoard currentPlayer sphere) *> continue'
 playInteraction _ _ _ = undefined
 
 foldMapA :: (Foldable t, Alternative m) => (a -> m b) -> t a -> m b
